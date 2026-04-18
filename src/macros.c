@@ -367,8 +367,9 @@ static void macros_destroy(void)
 	{
 		g_free(macros[i].shortcut);
 		g_free(macros[i].action);
-                g_free(macros[i].label);
+		g_free(macros[i].label);
 		g_free(macros[i].tab);
+		g_strfreev(macros[i].args);
 		/*
 		g_closure_unref(macros[i].closure);
 		*/
@@ -572,21 +573,24 @@ static gboolean Save_shortcuts(GtkWidget *button, gpointer pointer)
 {
 	GtkTreeIter iter;
 	GtkTreeView *treeview = (GtkTreeView *)pointer;
-	GtkTreeModel *model = gtk_tree_view_get_model (treeview);
+	GtkTreeModel *model = gtk_tree_view_get_model(treeview);
 	gint i = 0;
+
+	/* Préserver les args existants par index avant de détruire les macros */
+	gint old_count = 0;
+	macro_t *old_macros = get_shortcuts(&old_count);
+	gchar ***saved_args = g_new0(gchar **, old_count);
+	for (gint k = 0; k < old_count; k++)
+		if (old_macros[k].args != NULL)
+			saved_args[k] = g_strdupv(old_macros[k].args);
 
 	remove_shortcuts();
 
 	if(gtk_tree_model_get_iter_first(model, &iter))
 	{
-		do
-		{
-			i++;
-		}
-		while(gtk_tree_model_iter_next(model, &iter));
+		do { i++; } while(gtk_tree_model_iter_next(model, &iter));
 
 		gtk_tree_model_get_iter_first(model, &iter);
-
 		macros = g_malloc((i + 1) * sizeof(macro_t));
 		i = 0;
 		if(macros != NULL)
@@ -594,26 +598,63 @@ static gboolean Save_shortcuts(GtkWidget *button, gpointer pointer)
 			do
 			{
 				gtk_tree_model_get(model, &iter,
-                                                   COLUMN_LABEL, &(macros[i].label),
-                                                   COLUMN_SHORTCUT, &(macros[i].shortcut),
-				                   COLUMN_ACTION, &(macros[i].action),
-				                   COLUMN_TAB, &(macros[i].tab),
+				                   COLUMN_LABEL,    &(macros[i].label),
+				                   COLUMN_SHORTCUT, &(macros[i].shortcut),
+				                   COLUMN_ACTION,   &(macros[i].action),
+				                   COLUMN_TAB,      &(macros[i].tab),
 				                   -1);
+
+				/* Restaurer les args si le nombre de spécificateurs est identique */
+				if (i < old_count && saved_args[i] != NULL &&
+				    g_strv_length(saved_args[i]) == (guint)macro_count_format_args(macros[i].action))
+				{
+					macros[i].args = saved_args[i];
+					saved_args[i] = NULL;
+				}
+				else
+				{
+					macros[i].args = NULL;
+				}
 				i++;
-			}while(gtk_tree_model_iter_next(model, &iter));
+			} while(gtk_tree_model_iter_next(model, &iter));
 
-                        macros[i].label = NULL;
+			macros[i].label    = NULL;
 			macros[i].shortcut = NULL;
-			macros[i].action = NULL;
-			macros[i].tab = NULL;
-
+			macros[i].action   = NULL;
+			macros[i].tab      = NULL;
+			macros[i].args     = NULL;
 		}
 	}
+
+	for (gint k = 0; k < old_count; k++)
+		g_strfreev(saved_args[k]);
+	g_free(saved_args);
 
 	add_shortcuts();
 	rebuild_macro_buttons();
 	save_config_silent();
 	return FALSE;
+}
+
+void macro_set_arg(gint macro_index, gint arg_index, const gchar *value)
+{
+	gint nb_macros = 0;
+	get_shortcuts(&nb_macros);
+	if (macro_index >= nb_macros || macros[macro_index].action == NULL)
+		return;
+
+	gint n_args = macro_count_format_args(macros[macro_index].action);
+	if (arg_index >= n_args) return;
+
+	if (macros[macro_index].args == NULL)
+	{
+		macros[macro_index].args = g_new0(gchar *, n_args + 1);
+		for (gint k = 0; k < n_args; k++)
+			macros[macro_index].args[k] = g_strdup("");
+	}
+
+	g_free(macros[macro_index].args[arg_index]);
+	macros[macro_index].args[arg_index] = g_strdup(value ? value : "");
 }
 
 static gboolean key_pressed(GtkWidget *window, GdkEventKey *key, gpointer pointer)

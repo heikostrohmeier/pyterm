@@ -567,8 +567,23 @@ static void on_macro_arg_button_clicked(GtkWidget *widget, gpointer data)
 	g_free(args);
 }
 
+static void save_entry_arg(GtkWidget *entry)
+{
+	gint macro_index = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(entry), "macro-index"));
+	gint arg_index   = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(entry), "arg-index"));
+	macro_set_arg(macro_index, arg_index, gtk_entry_get_text(GTK_ENTRY(entry)));
+	save_config_silent();
+}
+
+static gboolean on_macro_arg_entry_focus_out(GtkWidget *entry, GdkEvent *event, gpointer data)
+{
+	save_entry_arg(entry);
+	return FALSE;
+}
+
 static void on_macro_arg_entry_activate(GtkWidget *entry, gpointer data)
 {
+	save_entry_arg(entry);
 	on_macro_arg_button_clicked(GTK_WIDGET(data), NULL);
 }
 void rebuild_macro_buttons(void)
@@ -674,13 +689,25 @@ void rebuild_macro_buttons(void)
 				{
 					GtkWidget *entry = gtk_entry_new();
 					d->entries[k] = entry;
+
 					const gchar *placeholder =
 					    (types[k] == 's')                         ? "text" :
 					    (strchr("feEgGaA", types[k]) != NULL)     ? "0.0"  : "0";
 					gtk_entry_set_placeholder_text(GTK_ENTRY(entry), placeholder);
 					gtk_entry_set_width_chars(GTK_ENTRY(entry), 6);
+
+					/* Pré-remplir avec la dernière valeur sauvegardée */
+					if (macros[i].args != NULL && k < (gint)g_strv_length(macros[i].args))
+						gtk_entry_set_text(GTK_ENTRY(entry), macros[i].args[k]);
+
+					/* Stocker les index pour la sauvegarde */
+					g_object_set_data(G_OBJECT(entry), "macro-index", GINT_TO_POINTER(i));
+					g_object_set_data(G_OBJECT(entry), "arg-index",   GINT_TO_POINTER(k));
+
 					g_signal_connect(entry, "activate",
 					                 G_CALLBACK(on_macro_arg_entry_activate), button);
+					g_signal_connect(entry, "focus-out-event",
+					                 G_CALLBACK(on_macro_arg_entry_focus_out), NULL);
 					gtk_box_pack_start(GTK_BOX(hbox), entry, TRUE, TRUE, 0);
 				}
 				g_free(types);

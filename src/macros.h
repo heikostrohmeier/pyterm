@@ -21,6 +21,7 @@ typedef struct
   gchar *shortcut;
   gchar *action;
   gchar *tab;
+  gchar **args;    /* valeurs des arguments (%d, %f, %s…), tableau NULL-terminé */
   GClosure *closure;
 } macro_t;
 
@@ -36,6 +37,7 @@ gint     macro_count_format_args(const gchar *action);
 gchar   *macro_get_format_types (const gchar *action, gint *count_out);
 void     send_macro_with_arg    (gint macro_index, const gchar *arg_str);
 void     send_macro_with_args   (gint macro_index, const gchar **args, gint n_args);
+void     macro_set_arg          (gint macro_index, gint arg_index, const gchar *value);
 
 #endif
 
