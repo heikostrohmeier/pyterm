@@ -129,6 +129,7 @@ cfgStruct cfg[] =
 };
 
 GFile *config_file;
+static gchar *active_config_name = NULL;
 
 struct configuration_port config;
 display_config_t term_conf;
@@ -801,6 +802,50 @@ void select_config_callback(GtkAction *action, gpointer data)
 	Select_config(_("Load configuration"), G_CALLBACK(load_config));
 }
 
+void save_config_silent(void)
+{
+	int max, cfg_num, i;
+	const gchar *name = active_config_name ? active_config_name : "default";
+
+	max = cfgParse(g_file_get_path(config_file), cfg, CFG_INI);
+	if(max == -1)
+	{
+		show_message(_("Cannot save configuration file!\nConfig file may contain invalid parameter.\n"), MSG_ERR);
+		return;
+	}
+
+	cfg_num = -1;
+	for(i = 0; i < max; i++)
+	{
+		if(!strcmp(name, cfgSectionNumberToName(i)))
+			cfg_num = i;
+	}
+
+	if(cfg_num == -1)
+	{
+		max = cfgAllocForNewSection(cfg, (char *)name);
+		cfg_num = max - 1;
+	}
+	else
+	{
+		if(remove_section(g_file_get_path(config_file), (char *)name) == -1)
+		{
+			show_message(_("Cannot overwrite section!"), MSG_ERR);
+			return;
+		}
+		if(max == cfgParse(g_file_get_path(config_file), cfg, CFG_INI))
+		{
+			show_message(_("Cannot read configuration file!"), MSG_ERR);
+			return;
+		}
+		max = cfgAllocForNewSection(cfg, (char *)name);
+		cfg_num = max - 1;
+	}
+
+	Copy_configuration(cfg_num);
+	cfgDump(g_file_get_path(config_file), cfg, CFG_INI, max);
+}
+
 void save_config_callback(GtkAction *action, gpointer data)
 {
 	Save_config_file();
@@ -1094,6 +1139,8 @@ void delete_config(GtkDialog *Fenetre, gint id, GtkTreeSelection *Selection_List
 gint Load_configuration_from_file(gchar *config_name)
 {
 	int max, i, j, k, size;
+	g_free(active_config_name);
+	active_config_name = g_strdup(config_name);
 	gchar *string = NULL;
 	gchar *str;
 	macro_t *macros = NULL;

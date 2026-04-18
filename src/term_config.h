@@ -22,6 +22,7 @@ gint Lis_Config(GtkWidget *bouton, GtkWidget **Combos);
 void Config_Terminal(GtkAction *action, gpointer data);
 void select_config_callback(GtkAction *action, gpointer data);
 void save_config_callback(GtkAction *action, gpointer data);
+void save_config_silent(void);
 void delete_config_callback(GtkAction *action, gpointer data);
 void Verify_configuration(void);
 gint Load_configuration_from_file(gchar *);

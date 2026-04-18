@@ -24,6 +24,7 @@
 
 #include "interface.h"
 #include "macros.h"
+#include "term_config.h"
 
 #include <config.h>
 #include <glib/gi18n.h>
@@ -457,7 +458,8 @@ static gboolean Save_shortcuts(GtkWidget *button, gpointer pointer)
 	}
 
 	add_shortcuts();
-        rebuild_macro_buttons ();
+	rebuild_macro_buttons();
+	save_config_silent();
 	return FALSE;
 }
 
@@ -517,6 +519,12 @@ static gboolean Capture_shortcut(GtkWidget *button, gpointer pointer)
 	return FALSE;
 }
 
+static gboolean on_window_close(GtkWidget *widget, GdkEvent *event, gpointer pointer)
+{
+	Save_shortcuts(NULL, pointer);
+	return FALSE;
+}
+
 static gboolean Help_screen(GtkWidget *button, gpointer pointer)
 {
 	GtkWidget *Dialog;
@@ -542,7 +550,7 @@ void Config_macros(GtkAction *action, gpointer data)
 	GtkWidget *treeview;
 	GtkWidget *button;
 	GtkWidget *separator;
-
+        g_print("Config_macros called\n");
 	/* create window, etc */
 	window = gtk_window_new (GTK_WINDOW_TOPLEVEL);
 	gtk_window_set_title (GTK_WINDOW (window), _("Configure Macros"));
@@ -577,6 +585,8 @@ void Config_macros(GtkAction *action, gpointer data)
 
 	/* add columns to the tree view */
 	add_columns (GTK_TREE_VIEW (treeview));
+
+	g_signal_connect(window, "delete-event", G_CALLBACK(on_window_close), (gpointer)treeview);
 
 	hbox = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 4);
 	gtk_box_set_homogeneous (GTK_BOX (hbox), TRUE);
