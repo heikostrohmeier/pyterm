@@ -45,9 +45,16 @@ unsigned int set_port_baudrate(unsigned int baud, int port_fd)
 
 #elif defined(HAVE_LINUX_TERMIOS_H)
 
-#include <linux/termios.h>
-#include <sys/ioctl.h>
 #include <sys/types.h>
+
+/* glibc 2.39+ (Ubuntu 24 LTS) redéfinit winsize/termio — on masque les conflits */
+#define winsize winsize_kernel
+#define termio  termio_kernel
+#include <linux/termios.h>
+#undef winsize
+#undef termio
+
+#include <sys/ioctl.h>
 
 /* <termios.h> cannot be included here */
 #define NO_TERMIOS
@@ -70,20 +77,32 @@ unsigned int set_port_baudrate(unsigned int baud, int port_fd)
 #ifndef CIBAUD
 # define CIBAUD (CBAUD << 16)
 #endif
+#ifndef BOTHER
+# define BOTHER 0010000
+#endif
 
 unsigned int set_port_baudrate(unsigned int baud, int port_fd)
 {
 	struct termios2 tio;
-	CHK(ioctl(port_fd, TCGETS2, &tio));
+	int ret;
 
-	tio.c_ispeed = tio.c_ospeed = baud;
-	tio.c_cflag &= ~(CBAUD | CIBAUD);
+	ret = ioctl(port_fd, TCGETS2, &tio);
+	if (ret < 0)
+		return 0;
+
+	tio.c_cflag &= ~CBAUD;
 	tio.c_cflag |= BOTHER;
+	tio.c_ispeed = baud;
+	tio.c_ospeed = baud;
 
-	CHK(ioctl(port_fd, TCSETS2, &tio));
-	CHK(ioctl(port_fd, TCGETS2, &tio));
+	ret = ioctl(port_fd, TCSETS2, &tio);
+	if (ret < 0)
+		return 0;
 
-	CHK((tio.c_cflag & CBAUD) ==  BOTHER);
+	ret = ioctl(port_fd, TCGETS2, &tio);
+	if (ret < 0)
+		return 0;
+
 	return tio.c_ospeed;
 }
 
