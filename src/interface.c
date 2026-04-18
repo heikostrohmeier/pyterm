@@ -87,6 +87,7 @@ gboolean autoreconnect_on;
 gboolean crlfauto_on;
 gboolean esc_clear_screen_on;
 gboolean timestamp_on = 0;
+gboolean show_rxtx_on = FALSE;
 GtkWidget *StatusBar;
 GtkWidget *signals[6];
 static GtkWidget *Hex_Box;
@@ -150,6 +151,8 @@ void view_macro_panel_toggled_callback(GtkAction *action, gpointer data);
 static void on_macro_button_clicked(GtkWidget *widget, gpointer data);
 static void create_macro_panel(void);
 void rebuild_macro_buttons(void);
+void show_rxtx_toggled_callback(GtkAction *action, gpointer data);
+void Set_show_rxtx(gboolean show);
 
 void set_saved_data(GtkWidget *widget, gboolean direction);
 void update_hex_history(GtkWidget *widget);
@@ -218,6 +221,7 @@ const GtkToggleActionEntry menu_toggle_entries[] =
 
 	/* View Menu */
 	{"ViewIndex", NULL, N_("Show _index"), NULL, NULL, G_CALLBACK(view_index_toggled_callback), FALSE},
+	{"ViewShowRxTx", NULL, N_("Show R_x/Tx"), NULL, NULL, G_CALLBACK(show_rxtx_toggled_callback), FALSE},
 	{"ViewSendHexData", NULL, N_("_Send hexadecimal data"), NULL, NULL, G_CALLBACK(view_send_hex_toggled_callback), FALSE},
         {"ViewMacroPanel", NULL, N_("_Macro panel"), NULL, NULL, G_CALLBACK(view_macro_panel_toggled_callback), TRUE}
 };
@@ -294,6 +298,7 @@ static const char *ui_description =
     "        <menuitem action='ViewHex32'/>"
     "      </menu>"
     "      <menuitem action='ViewIndex'/>"
+    "      <menuitem action='ViewShowRxTx'/>"
     "      <separator/>"
     "      <menuitem action='ViewSendHexData'/>"
     "      <menuitem action='ViewMacroPanel'/>"
@@ -476,6 +481,21 @@ void timestamp_toggled_callback(GtkAction *action, gpointer data)
 {
 	timestamp_on = gtk_toggle_action_get_active (GTK_TOGGLE_ACTION(action));
 	config.timestamp = timestamp_on ? TRUE : FALSE;
+}
+
+void Set_show_rxtx(gboolean show)
+{
+	GtkAction *action;
+	show_rxtx_on = show;
+	action = gtk_action_group_get_action(action_group, "ViewShowRxTx");
+	if(action)
+		gtk_toggle_action_set_active(GTK_TOGGLE_ACTION(action), show_rxtx_on);
+}
+
+void show_rxtx_toggled_callback(GtkAction *action, gpointer data)
+{
+	show_rxtx_on = gtk_toggle_action_get_active(GTK_TOGGLE_ACTION(action));
+	config.show_rxtx = show_rxtx_on ? TRUE : FALSE;
 }
 
 void toggle_logging_pause_resume(gboolean currentlyLogging)
@@ -995,8 +1015,8 @@ gint send_serial(gchar *string, gint len)
 	bytes_written = Send_chars(string, len);
 	if(bytes_written > 0)
 	{
-		if(echo_on)
-			put_chars(string, bytes_written, crlfauto_on, esc_clear_screen_on);
+		if(echo_on || show_rxtx_on)
+			put_chars(string, bytes_written, crlfauto_on, esc_clear_screen_on, TRUE);
 	}
 
 	return bytes_written;

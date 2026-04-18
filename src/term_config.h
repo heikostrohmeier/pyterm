@@ -51,6 +51,7 @@ struct configuration_port
 	gboolean autoreconnect_enabled;	// enable autoreconnect
 	gboolean esc_clear_screen;   // clear screen when receive ESC char ('\x1b' - 27)
 	gboolean timestamp;
+	gboolean show_rxtx;
 	gboolean disable_port_lock;
 };
 
