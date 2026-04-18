@@ -543,19 +543,33 @@ static void on_macro_button_clicked(GtkWidget *widget, gpointer data)
 		shortcut_callback((gpointer)(long)macro_index);
 }
 
-static void on_macro_arg_button_clicked(GtkWidget *widget, gpointer data)
+typedef struct {
+	gint       macro_index;
+	GtkWidget **entries;
+	gint       n_entries;
+} MacroArgData;
+
+static void macro_arg_data_free(gpointer data)
 {
-	gint macro_index = GPOINTER_TO_INT(data);
-	GtkWidget *entry = GTK_WIDGET(g_object_get_data(G_OBJECT(widget), "arg-entry"));
-	const gchar *arg_str = entry ? gtk_entry_get_text(GTK_ENTRY(entry)) : "";
-	send_macro_with_arg(macro_index, arg_str);
+	MacroArgData *d = (MacroArgData *)data;
+	g_free(d->entries);
+	g_free(d);
 }
 
-static void on_macro_arg_entry_activate(GtkWidget *widget, gpointer data)
+static void on_macro_arg_button_clicked(GtkWidget *widget, gpointer data)
 {
-	gint macro_index = GPOINTER_TO_INT(data);
-	const gchar *arg_str = gtk_entry_get_text(GTK_ENTRY(widget));
-	send_macro_with_arg(macro_index, arg_str);
+	MacroArgData *d = (MacroArgData *)g_object_get_data(G_OBJECT(widget), "macro-data");
+	if (d == NULL) return;
+	const gchar **args = g_new(const gchar *, d->n_entries);
+	for (gint k = 0; k < d->n_entries; k++)
+		args[k] = gtk_entry_get_text(GTK_ENTRY(d->entries[k]));
+	send_macro_with_args(d->macro_index, args, d->n_entries);
+	g_free(args);
+}
+
+static void on_macro_arg_entry_activate(GtkWidget *entry, gpointer data)
+{
+	on_macro_arg_button_clicked(GTK_WIDGET(data), NULL);
 }
 void rebuild_macro_buttons(void)
 {
@@ -638,31 +652,39 @@ void rebuild_macro_buttons(void)
 			           macros[i].shortcut ? macros[i].shortcut : "",
 			           macros[i].action);
 
-			if (macro_has_format_arg(macros[i].action))
+			gint n_args = macro_count_format_args(macros[i].action);
+			if (n_args > 0)
 			{
-				gchar fmt_type = macro_get_format_type(macros[i].action);
+				gchar *types = macro_get_format_types(macros[i].action, NULL);
 				GtkWidget *hbox   = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 2);
 				GtkWidget *button = gtk_button_new_with_label(macros[i].label);
-				GtkWidget *entry  = gtk_entry_new();
 
-				const gchar *placeholder =
-				    (fmt_type == 's')                              ? "text" :
-				    (strchr("feEgGaA", fmt_type) != NULL)         ? "0.0"  : "0";
-				gtk_entry_set_placeholder_text(GTK_ENTRY(entry), placeholder);
-				gtk_entry_set_width_chars(GTK_ENTRY(entry), 7);
+				MacroArgData *d = g_new(MacroArgData, 1);
+				d->macro_index = i;
+				d->n_entries   = n_args;
+				d->entries     = g_new(GtkWidget *, n_args);
 
-				g_object_set_data(G_OBJECT(button), "arg-entry", entry);
+				g_object_set_data_full(G_OBJECT(button), "macro-data", d, macro_arg_data_free);
 				g_signal_connect(button, "clicked",
-				                 G_CALLBACK(on_macro_arg_button_clicked),
-				                 GINT_TO_POINTER(i));
-				g_signal_connect(entry, "activate",
-				                 G_CALLBACK(on_macro_arg_entry_activate),
-				                 GINT_TO_POINTER(i));
-
+				                 G_CALLBACK(on_macro_arg_button_clicked), NULL);
 				gtk_widget_set_tooltip_text(button, tooltip);
 				gtk_box_pack_start(GTK_BOX(hbox), button, FALSE, FALSE, 0);
-				gtk_box_pack_start(GTK_BOX(hbox), entry,  TRUE,  TRUE,  0);
-				gtk_box_pack_start(GTK_BOX(vbox), hbox,   FALSE, FALSE, 2);
+
+				for (gint k = 0; k < n_args; k++)
+				{
+					GtkWidget *entry = gtk_entry_new();
+					d->entries[k] = entry;
+					const gchar *placeholder =
+					    (types[k] == 's')                         ? "text" :
+					    (strchr("feEgGaA", types[k]) != NULL)     ? "0.0"  : "0";
+					gtk_entry_set_placeholder_text(GTK_ENTRY(entry), placeholder);
+					gtk_entry_set_width_chars(GTK_ENTRY(entry), 6);
+					g_signal_connect(entry, "activate",
+					                 G_CALLBACK(on_macro_arg_entry_activate), button);
+					gtk_box_pack_start(GTK_BOX(hbox), entry, TRUE, TRUE, 0);
+				}
+				g_free(types);
+				gtk_box_pack_start(GTK_BOX(vbox), hbox, FALSE, FALSE, 2);
 			}
 			else
 			{

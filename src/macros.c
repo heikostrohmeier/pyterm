@@ -147,27 +147,56 @@ static GByteArray* parse_macro_string(const gchar *string)
 	return buffer;
 }
 
-/* Retourne le caractère de type du premier spécificateur de format dans action,
-   ou '\0' si aucun. Ex: "%d" -> 'd', "%5.2f" -> 'f', "%%" -> '\0' */
+/* Parse le spécificateur de format à action[start] (où action[start]=='%' et action[start+1]!='%').
+   Retourne le type char ('d','f','s'...) et écrit la position du type dans *end_out. */
+static gchar parse_one_spec(const gchar *action, gint start, gint *end_out)
+{
+	gint j = start + 1;
+	while (action[j] == '-' || action[j] == '+' || action[j] == ' ' ||
+	       action[j] == '#' || action[j] == '0') j++;
+	while (g_ascii_isdigit(action[j])) j++;
+	if (action[j] == '.') { j++; while (g_ascii_isdigit(action[j])) j++; }
+	while (action[j] == 'h' || action[j] == 'l' || action[j] == 'L' ||
+	       action[j] == 'z' || action[j] == 'j' || action[j] == 't') j++;
+	if (action[j] != '\0' && strchr("diouxXeEfFgGaAcs", action[j]))
+	{
+		if (end_out) *end_out = j;
+		return action[j];
+	}
+	return '\0';
+}
+
+/* Applique un spécificateur isolé sur une valeur string et retourne le résultat alloué. */
+static gchar *apply_spec(const gchar *spec, gchar fmt_type, const gchar *arg_str)
+{
+	switch (fmt_type)
+	{
+	case 'd': case 'i':
+		return g_strdup_printf(spec, (int)strtol(arg_str, NULL, 10));
+	case 'u': case 'o':
+		return g_strdup_printf(spec, (unsigned int)strtoul(arg_str, NULL, 10));
+	case 'x': case 'X':
+		return g_strdup_printf(spec, (unsigned int)strtoul(arg_str, NULL, 0));
+	case 'e': case 'E': case 'f': case 'F': case 'g': case 'G': case 'a': case 'A':
+		return g_strdup_printf(spec, strtod(arg_str, NULL));
+	case 's':
+		return g_strdup_printf(spec, arg_str);
+	case 'c':
+		return g_strdup_printf(spec, (int)(arg_str[0] ? arg_str[0] : ' '));
+	default:
+		return g_strdup("");
+	}
+}
+
 gchar macro_get_format_type(const gchar *action)
 {
 	if (action == NULL) return '\0';
-
 	for (gint i = 0; action[i] != '\0'; i++)
 	{
 		if (action[i] != '%') continue;
 		if (action[i + 1] == '%') { i++; continue; }
-
-		gint j = i + 1;
-		while (action[j] == '-' || action[j] == '+' || action[j] == ' ' ||
-		       action[j] == '#' || action[j] == '0') j++;
-		while (g_ascii_isdigit(action[j])) j++;
-		if (action[j] == '.') { j++; while (g_ascii_isdigit(action[j])) j++; }
-		while (action[j] == 'h' || action[j] == 'l' || action[j] == 'L' ||
-		       action[j] == 'z' || action[j] == 'j' || action[j] == 't') j++;
-
-		if (action[j] != '\0' && strchr("diouxXeEfFgGaAcs", action[j]))
-			return action[j];
+		gchar t = parse_one_spec(action, i, NULL);
+		if (t != '\0') return t;
 	}
 	return '\0';
 }
@@ -177,76 +206,82 @@ gboolean macro_has_format_arg(const gchar *action)
 	return macro_get_format_type(action) != '\0';
 }
 
-/* Formate la première occurrence du spécificateur avec arg_str, laisse le reste intact */
-static gchar *format_action_with_arg(const gchar *action, const gchar *arg_str)
+gint macro_count_format_args(const gchar *action)
 {
-	gint spec_start = -1, spec_end = -1;
-	gchar fmt_type = '\0';
-
+	if (action == NULL) return 0;
+	gint count = 0;
 	for (gint i = 0; action[i] != '\0'; i++)
 	{
 		if (action[i] != '%') continue;
 		if (action[i + 1] == '%') { i++; continue; }
-
-		spec_start = i;
-		gint j = i + 1;
-		while (action[j] == '-' || action[j] == '+' || action[j] == ' ' ||
-		       action[j] == '#' || action[j] == '0') j++;
-		while (g_ascii_isdigit(action[j])) j++;
-		if (action[j] == '.') { j++; while (g_ascii_isdigit(action[j])) j++; }
-		while (action[j] == 'h' || action[j] == 'l' || action[j] == 'L' ||
-		       action[j] == 'z' || action[j] == 'j' || action[j] == 't') j++;
-
-		if (action[j] != '\0' && strchr("diouxXeEfFgGaAcs", action[j]))
-		{
-			spec_end = j;
-			fmt_type = action[j];
-			break;
-		}
+		gint end;
+		if (parse_one_spec(action, i, &end) != '\0') { count++; i = end; }
 	}
-
-	if (spec_start == -1) return g_strdup(action);
-
-	gchar *spec = g_strndup(&action[spec_start], spec_end - spec_start + 1);
-	gchar *arg_formatted;
-
-	switch (fmt_type)
-	{
-	case 'd': case 'i':
-		arg_formatted = g_strdup_printf(spec, (int)strtol(arg_str, NULL, 10)); break;
-	case 'u': case 'o':
-		arg_formatted = g_strdup_printf(spec, (unsigned int)strtoul(arg_str, NULL, 10)); break;
-	case 'x': case 'X':
-		arg_formatted = g_strdup_printf(spec, (unsigned int)strtoul(arg_str, NULL, 0)); break;
-	case 'e': case 'E': case 'f': case 'F': case 'g': case 'G': case 'a': case 'A':
-		arg_formatted = g_strdup_printf(spec, strtod(arg_str, NULL)); break;
-	case 's':
-		arg_formatted = g_strdup_printf(spec, arg_str); break;
-	case 'c':
-		arg_formatted = g_strdup_printf(spec, (int)(arg_str[0] ? arg_str[0] : ' ')); break;
-	default:
-		arg_formatted = g_strdup(""); break;
-	}
-	g_free(spec);
-
-	gchar *prefix = g_strndup(action, spec_start);
-	gchar *suffix  = g_strdup(&action[spec_end + 1]);
-	gchar *result  = g_strconcat(prefix, arg_formatted, suffix, NULL);
-
-	g_free(prefix);
-	g_free(arg_formatted);
-	g_free(suffix);
-	return result;
+	return count;
 }
 
-void send_macro_with_arg(gint macro_index, const gchar *arg_str)
+/* Retourne un tableau de types (ex: "dfs") à libérer avec g_free, ou NULL si aucun arg. */
+gchar *macro_get_format_types(const gchar *action, gint *count_out)
+{
+	gint n = macro_count_format_args(action);
+	if (count_out) *count_out = n;
+	if (n == 0) return NULL;
+	gchar *types = g_new(gchar, n + 1);
+	gint idx = 0;
+	for (gint i = 0; action[i] != '\0' && idx < n; i++)
+	{
+		if (action[i] != '%') continue;
+		if (action[i + 1] == '%') { i++; continue; }
+		gint end;
+		gchar t = parse_one_spec(action, i, &end);
+		if (t != '\0') { types[idx++] = t; i = end; }
+	}
+	types[n] = '\0';
+	return types;
+}
+
+/* Construit la chaîne d'action en substituant chaque spécificateur par l'argument correspondant. */
+static gchar *format_action_with_args(const gchar *action, const gchar **args, gint n_args)
+{
+	GString *result = g_string_new("");
+	gint arg_idx = 0;
+
+	for (gint i = 0; action[i] != '\0'; i++)
+	{
+		if (action[i] != '%') { g_string_append_c(result, action[i]); continue; }
+		if (action[i + 1] == '%') { g_string_append_c(result, '%'); i++; continue; }
+
+		gint spec_end;
+		gchar fmt_type = parse_one_spec(action, i, &spec_end);
+
+		if (fmt_type == '\0') { g_string_append_c(result, action[i]); continue; }
+
+		if (arg_idx < n_args)
+		{
+			gchar *spec = g_strndup(&action[i], spec_end - i + 1);
+			gchar *formatted = apply_spec(spec, fmt_type, args[arg_idx] ? args[arg_idx] : "");
+			g_string_append(result, formatted);
+			g_free(formatted);
+			g_free(spec);
+			arg_idx++;
+		}
+		else
+		{
+			g_string_append_len(result, &action[i], spec_end - i + 1);
+		}
+		i = spec_end;
+	}
+	return g_string_free(result, FALSE);
+}
+
+void send_macro_with_args(gint macro_index, const gchar **args, gint n_args)
 {
 	gint nb_macros = 0;
 	get_shortcuts(&nb_macros);
 	if (macro_index >= nb_macros || macros[macro_index].action == NULL)
 		return;
 
-	gchar *formatted = format_action_with_arg(macros[macro_index].action, arg_str ? arg_str : "");
+	gchar *formatted = format_action_with_args(macros[macro_index].action, args, n_args);
 	GByteArray *buffer = parse_macro_string(formatted);
 	g_free(formatted);
 
@@ -257,6 +292,12 @@ void send_macro_with_arg(gint macro_index, const gchar *arg_str)
 	    strlen(macros[macro_index].label) > 0 ? macros[macro_index].label : macros[macro_index].shortcut);
 	Put_temp_message(message, 800);
 	g_free(message);
+}
+
+void send_macro_with_arg(gint macro_index, const gchar *arg_str)
+{
+	const gchar *args[] = { arg_str };
+	send_macro_with_args(macro_index, args, 1);
 }
 
 /* Fonction principale de callback pour l'exécution d'une macro */
