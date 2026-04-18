@@ -1217,13 +1217,25 @@ gint Load_configuration_from_file(gchar *config_name)
 						  macros[j].label = g_strdup("");
 						  macros[j].shortcut = g_strdup("None");
 						  macros[j].action = g_strdup("");
+						  macros[j].tab = g_strdup("");
 						  t = t->next;
 						  continue;
 						}
 
 						macros[j].label = g_strndup(t->str, sep1 - t->str);
 						macros[j].shortcut = g_strndup(sep1 + 2, sep2 - (sep1 + 2));
-						macros[j].action = g_strdup(sep2 + 2);
+
+						gchar *sep3 = strstr(sep2 + 2, "::");
+						if(sep3 != NULL)
+						{
+							macros[j].action = g_strndup(sep2 + 2, sep3 - (sep2 + 2));
+							macros[j].tab = g_strdup(sep3 + 2);
+						}
+						else
+						{
+							macros[j].action = g_strdup(sep2 + 2);
+							macros[j].tab = g_strdup("");
+						}
 
 						t = t->next;
 					}
@@ -1527,9 +1539,11 @@ void Copy_configuration(int pos)
 	macros = get_shortcuts(&size);
 	for(i = 0; i < size; i++)
 	{
-		string = g_strdup_printf("%s::%s::%s", macros[i].label ? macros[i].label : "",
-                                                       macros[i].shortcut ? macros[i].shortcut : "",
-                                                       macros[i].action ? macros[i].action : "");
+		string = g_strdup_printf("%s::%s::%s::%s",
+		                         macros[i].label ? macros[i].label : "",
+                                         macros[i].shortcut ? macros[i].shortcut : "",
+                                         macros[i].action ? macros[i].action : "",
+                                         macros[i].tab ? macros[i].tab : "");
 		cfgStoreValue(cfg, "macros", string, CFG_INI, pos);
 		g_free(string);
 	}

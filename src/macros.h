@@ -20,6 +20,7 @@ typedef struct
   gchar *label;
   gchar *shortcut;
   gchar *action;
+  gchar *tab;
   GClosure *closure;
 } macro_t;
 

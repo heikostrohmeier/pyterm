@@ -99,8 +99,7 @@ GtkAccelGroup *shortcuts;
 GtkActionGroup *action_group;
 GtkWidget *display = NULL;
 GtkWidget *macro_panel;
-GtkWidget *macro_scrolled;
-GtkWidget *macro_vbox;
+GtkWidget *macro_notebook;
 
 GtkWidget *Text;
 GtkTextBuffer *buffer;
@@ -548,81 +547,107 @@ static void on_macro_button_clicked(GtkWidget *widget, gpointer data)
 }
 void rebuild_macro_buttons(void)
 {
-	GList *children, *iter;
-	gint i = 0;
-	gint nb_macros = 0;   //++1 ? Label + Action
+	gint nb_macros = 0;
 	macro_t *macros = get_shortcuts(&nb_macros);
 
-	if (macro_vbox == NULL)
+	if (macro_notebook == NULL)
 		return;
 
-	/* Supprimer tous les boutons existants (sauf le titre et le séparateur) */
-	children = gtk_container_get_children(GTK_CONTAINER(macro_vbox));
-	for (iter = children; iter != NULL; iter = g_list_next(iter))
+	/* Supprimer toutes les pages existantes */
+	while (gtk_notebook_get_n_pages(GTK_NOTEBOOK(macro_notebook)) > 0)
+		gtk_notebook_remove_page(GTK_NOTEBOOK(macro_notebook), 0);
+
+	/* Collecter les noms d'onglets uniques dans l'ordre d'apparition */
+	GList *tab_names = NULL;
+	for (gint i = 0; i < nb_macros; i++)
 	{
-	  GtkWidget *child = GTK_WIDGET(iter->data);
+		if (macros[i].label == NULL || strlen(macros[i].label) == 0)
+			continue;
+		if (macros[i].action == NULL || strlen(macros[i].action) == 0)
+			continue;
 
-	  if (GTK_IS_BUTTON(child) || (GTK_IS_LABEL(child) && gtk_widget_get_sensitive(child) == FALSE))
-	  {
-	    gtk_widget_destroy(child);
-	  }
-	}
-	g_list_free(children);
+		const gchar *tab = (macros[i].tab != NULL && strlen(macros[i].tab) > 0)
+		                   ? macros[i].tab : _("General");
 
-  	gint button_count = 0;
-        //Create a button for each macro with not null 'label' and action
-	for (i = 0; i < nb_macros; i++)
-	{
-          /* Vérifier si la macro a un label défini et non vide */
-          if ((macros[i].label != NULL && strlen(macros[i].label) > 0) && (macros[i].action != NULL && strlen(macros[i].action) > 0))
-          {
-            GtkWidget *button;
-            gchar tooltip[256];
-
-            button = gtk_button_new_with_label(macros[i].label);
-            g_signal_connect(button, "clicked",G_CALLBACK(on_macro_button_clicked),GINT_TO_POINTER(i));
-            g_snprintf(tooltip, sizeof(tooltip),_("Shortcut: %s\nAction: %s"),macros[i].shortcut,macros[i].action);
-            gtk_widget_set_tooltip_text(button, tooltip);
-
-            /* Ajouter le bouton à la vbox */
-            gtk_box_pack_start(GTK_BOX(macro_vbox), button, FALSE, FALSE, 2);
-            gtk_widget_show(button);
-            button_count++;
-	  }
+		gboolean found = FALSE;
+		for (GList *l = tab_names; l != NULL; l = l->next)
+		{
+			if (g_strcmp0((gchar *)l->data, tab) == 0)
+			{
+				found = TRUE;
+				break;
+			}
+		}
+		if (!found)
+			tab_names = g_list_append(tab_names, (gpointer)tab);
 	}
 
-	if (button_count == 0)
+	if (tab_names == NULL)
 	{
-	  GtkWidget *label = gtk_label_new(_("No macros defined\nwith labels"));
-	  gtk_label_set_justify(GTK_LABEL(label), GTK_JUSTIFY_CENTER);
-	  gtk_widget_set_sensitive(label, FALSE);
-	  gtk_box_pack_start(GTK_BOX(macro_vbox), label, FALSE, FALSE, 10);
-	  gtk_widget_show(label);
+		GtkWidget *vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 3);
+		gtk_container_set_border_width(GTK_CONTAINER(vbox), 5);
+		GtkWidget *lbl = gtk_label_new(_("No macros defined\nwith labels"));
+		gtk_label_set_justify(GTK_LABEL(lbl), GTK_JUSTIFY_CENTER);
+		gtk_widget_set_sensitive(lbl, FALSE);
+		gtk_box_pack_start(GTK_BOX(vbox), lbl, FALSE, FALSE, 10);
+		gtk_widget_show_all(vbox);
+		gtk_notebook_append_page(GTK_NOTEBOOK(macro_notebook), vbox,
+		                         gtk_label_new(_("General")));
+		return;
 	}
+
+	/* Créer un onglet par nom unique */
+	for (GList *l = tab_names; l != NULL; l = l->next)
+	{
+		const gchar *tab_name = (gchar *)l->data;
+
+		GtkWidget *scrolled = gtk_scrolled_window_new(NULL, NULL);
+		gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scrolled),
+		                               GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
+		GtkWidget *vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 3);
+		gtk_container_set_border_width(GTK_CONTAINER(vbox), 5);
+		gtk_container_add(GTK_CONTAINER(scrolled), vbox);
+
+		for (gint i = 0; i < nb_macros; i++)
+		{
+			if (macros[i].label == NULL || strlen(macros[i].label) == 0)
+				continue;
+			if (macros[i].action == NULL || strlen(macros[i].action) == 0)
+				continue;
+
+			const gchar *macro_tab = (macros[i].tab != NULL && strlen(macros[i].tab) > 0)
+			                         ? macros[i].tab : _("General");
+
+			if (g_strcmp0(macro_tab, tab_name) != 0)
+				continue;
+
+			GtkWidget *button = gtk_button_new_with_label(macros[i].label);
+			g_signal_connect(button, "clicked",
+			                 G_CALLBACK(on_macro_button_clicked),
+			                 GINT_TO_POINTER(i));
+			gchar tooltip[256];
+			g_snprintf(tooltip, sizeof(tooltip), _("Shortcut: %s\nAction: %s"),
+			           macros[i].shortcut ? macros[i].shortcut : "",
+			           macros[i].action);
+			gtk_widget_set_tooltip_text(button, tooltip);
+			gtk_box_pack_start(GTK_BOX(vbox), button, FALSE, FALSE, 2);
+		}
+
+		gtk_widget_show_all(scrolled);
+		gtk_notebook_append_page(GTK_NOTEBOOK(macro_notebook), scrolled,
+		                         gtk_label_new(tab_name));
+	}
+
+	g_list_free(tab_names);
 }
 
 static void create_macro_panel(void)
 {
-	GtkWidget *label;
-	GtkWidget *separator;
+	macro_notebook = gtk_notebook_new();
+	gtk_notebook_set_tab_pos(GTK_NOTEBOOK(macro_notebook), GTK_POS_TOP);
+	gtk_widget_set_size_request(macro_notebook, 170, -1);
 
-	macro_scrolled = gtk_scrolled_window_new(NULL, NULL);
-	gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(macro_scrolled), GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
-	gtk_widget_set_size_request(macro_scrolled, 150, -1);
-
-	macro_vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 3);
-	gtk_container_set_border_width(GTK_CONTAINER(macro_vbox), 5);
-
-	label = gtk_label_new(NULL);
-	gtk_label_set_markup(GTK_LABEL(label), "<b>Macros</b>");
-	gtk_box_pack_start(GTK_BOX(macro_vbox), label, FALSE, FALSE, 3);
-
-	separator = gtk_separator_new(GTK_ORIENTATION_HORIZONTAL);
-	gtk_box_pack_start(GTK_BOX(macro_vbox), separator, FALSE, FALSE, 3);
-
-	gtk_container_add(GTK_CONTAINER(macro_scrolled), macro_vbox);
-
-	macro_panel = macro_scrolled;
+	macro_panel = macro_notebook;
 
 	rebuild_macro_buttons();
 }
