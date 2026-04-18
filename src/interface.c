@@ -938,7 +938,7 @@ void initialize_hexadecimal_display(void)
 void put_hexadecimal(const gchar *string, guint size)
 {
 	static gchar data[128];
-	static gchar data_byte[6];
+	static gchar data_byte[16];
 	gint i = 0;
 
 	if(size == 0)

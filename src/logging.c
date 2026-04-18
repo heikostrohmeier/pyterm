@@ -161,7 +161,7 @@ void logging_stop(void)
 	toggle_logging_pause_resume(Logging);
 }
 
-void log_chars(gchar *chars, guint size)
+void log_chars(const gchar *chars, guint size)
 {
 	guint writeAttempts = 0;
 	guint bytesWritten = 0;

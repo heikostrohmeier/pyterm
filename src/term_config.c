@@ -501,7 +501,7 @@ void Config_Port_Fenetre(GtkAction *action, gpointer data)
 	g_ptr_array_free(ports, TRUE);
 
 	// try to restore last selected port, if any
-	if(config.port != NULL && config.port[0] != '\0')
+	if(config.port[0] != '\0')
 	{
 		GtkWidget *tmp_entry;
 		tmp_entry = gtk_bin_get_child(GTK_BIN(Combo));
@@ -1141,11 +1141,10 @@ void delete_config(GtkDialog *Fenetre, gint id, GtkTreeSelection *Selection_List
 
 gint Load_configuration_from_file(gchar *config_name)
 {
-	int max, i, j, k, size;
+	int max, i, j, size;
 	g_free(active_config_name);
 	active_config_name = g_strdup(config_name);
 	gchar *string = NULL;
-	gchar *str;
 	macro_t *macros = NULL;
 	cfgList *t;
 

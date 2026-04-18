@@ -36,7 +36,7 @@ static char *iconv_from_utf8_to_locale(const char *str, const char *fallback_str
 	iconv_t cd;
 	size_t nconv;
 
-	char *buffer, *old_buffer;
+	char *buffer;
 	char *buffer_ptr;
 	char *string_ptr;
 	char *string;
@@ -82,14 +82,14 @@ static char *iconv_from_utf8_to_locale(const char *str, const char *fallback_str
 			// increase buffer size
 			buffer_size += buffer_inc;
 			buffer_size_left = buffer_inc;
-			old_buffer = buffer;
+			size_t offset = buffer_ptr - buffer;
 			buffer = (char *) realloc(buffer, buffer_size + 1);
 			if (buffer == NULL)
 			{
 				free(string);
 				return g_strdup(fallback_string);
 			}
-			buffer_ptr = (buffer_ptr - old_buffer) + buffer;
+			buffer_ptr = buffer + offset;
 		}
 	}
 	*buffer_ptr = '\0';

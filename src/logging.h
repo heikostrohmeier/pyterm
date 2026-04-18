@@ -18,6 +18,6 @@ void logging_start(GtkAction *action, gpointer data);
 void logging_pause_resume(void);
 void logging_stop(void);
 void logging_clear(void);
-void log_chars(gchar *chars, guint size);
+void log_chars(const gchar *chars, guint size);
 
 #endif /* LOGGING_H_ */
