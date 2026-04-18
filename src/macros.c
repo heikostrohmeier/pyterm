@@ -147,6 +147,118 @@ static GByteArray* parse_macro_string(const gchar *string)
 	return buffer;
 }
 
+/* Retourne le caractère de type du premier spécificateur de format dans action,
+   ou '\0' si aucun. Ex: "%d" -> 'd', "%5.2f" -> 'f', "%%" -> '\0' */
+gchar macro_get_format_type(const gchar *action)
+{
+	if (action == NULL) return '\0';
+
+	for (gint i = 0; action[i] != '\0'; i++)
+	{
+		if (action[i] != '%') continue;
+		if (action[i + 1] == '%') { i++; continue; }
+
+		gint j = i + 1;
+		while (action[j] == '-' || action[j] == '+' || action[j] == ' ' ||
+		       action[j] == '#' || action[j] == '0') j++;
+		while (g_ascii_isdigit(action[j])) j++;
+		if (action[j] == '.') { j++; while (g_ascii_isdigit(action[j])) j++; }
+		while (action[j] == 'h' || action[j] == 'l' || action[j] == 'L' ||
+		       action[j] == 'z' || action[j] == 'j' || action[j] == 't') j++;
+
+		if (action[j] != '\0' && strchr("diouxXeEfFgGaAcs", action[j]))
+			return action[j];
+	}
+	return '\0';
+}
+
+gboolean macro_has_format_arg(const gchar *action)
+{
+	return macro_get_format_type(action) != '\0';
+}
+
+/* Formate la première occurrence du spécificateur avec arg_str, laisse le reste intact */
+static gchar *format_action_with_arg(const gchar *action, const gchar *arg_str)
+{
+	gint spec_start = -1, spec_end = -1;
+	gchar fmt_type = '\0';
+
+	for (gint i = 0; action[i] != '\0'; i++)
+	{
+		if (action[i] != '%') continue;
+		if (action[i + 1] == '%') { i++; continue; }
+
+		spec_start = i;
+		gint j = i + 1;
+		while (action[j] == '-' || action[j] == '+' || action[j] == ' ' ||
+		       action[j] == '#' || action[j] == '0') j++;
+		while (g_ascii_isdigit(action[j])) j++;
+		if (action[j] == '.') { j++; while (g_ascii_isdigit(action[j])) j++; }
+		while (action[j] == 'h' || action[j] == 'l' || action[j] == 'L' ||
+		       action[j] == 'z' || action[j] == 'j' || action[j] == 't') j++;
+
+		if (action[j] != '\0' && strchr("diouxXeEfFgGaAcs", action[j]))
+		{
+			spec_end = j;
+			fmt_type = action[j];
+			break;
+		}
+	}
+
+	if (spec_start == -1) return g_strdup(action);
+
+	gchar *spec = g_strndup(&action[spec_start], spec_end - spec_start + 1);
+	gchar *arg_formatted;
+
+	switch (fmt_type)
+	{
+	case 'd': case 'i':
+		arg_formatted = g_strdup_printf(spec, (int)strtol(arg_str, NULL, 10)); break;
+	case 'u': case 'o':
+		arg_formatted = g_strdup_printf(spec, (unsigned int)strtoul(arg_str, NULL, 10)); break;
+	case 'x': case 'X':
+		arg_formatted = g_strdup_printf(spec, (unsigned int)strtoul(arg_str, NULL, 0)); break;
+	case 'e': case 'E': case 'f': case 'F': case 'g': case 'G': case 'a': case 'A':
+		arg_formatted = g_strdup_printf(spec, strtod(arg_str, NULL)); break;
+	case 's':
+		arg_formatted = g_strdup_printf(spec, arg_str); break;
+	case 'c':
+		arg_formatted = g_strdup_printf(spec, (int)(arg_str[0] ? arg_str[0] : ' ')); break;
+	default:
+		arg_formatted = g_strdup(""); break;
+	}
+	g_free(spec);
+
+	gchar *prefix = g_strndup(action, spec_start);
+	gchar *suffix  = g_strdup(&action[spec_end + 1]);
+	gchar *result  = g_strconcat(prefix, arg_formatted, suffix, NULL);
+
+	g_free(prefix);
+	g_free(arg_formatted);
+	g_free(suffix);
+	return result;
+}
+
+void send_macro_with_arg(gint macro_index, const gchar *arg_str)
+{
+	gint nb_macros = 0;
+	get_shortcuts(&nb_macros);
+	if (macro_index >= nb_macros || macros[macro_index].action == NULL)
+		return;
+
+	gchar *formatted = format_action_with_arg(macros[macro_index].action, arg_str ? arg_str : "");
+	GByteArray *buffer = parse_macro_string(formatted);
+	g_free(formatted);
+
+	if (buffer->len > 0) send_serial((gchar *)buffer->data, buffer->len);
+	g_byte_array_free(buffer, TRUE);
+
+	gchar *message = g_strdup_printf(_("Macro \"%s\" sent!"),
+	    strlen(macros[macro_index].label) > 0 ? macros[macro_index].label : macros[macro_index].shortcut);
+	Put_temp_message(message, 800);
+	g_free(message);
+}
+
 /* Fonction principale de callback pour l'exécution d'une macro */
 void shortcut_callback(gpointer number)
 {

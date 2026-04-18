@@ -30,6 +30,9 @@ void add_shortcuts (void);
 void create_shortcuts (macro_t *, gint);
 void shortcut_callback(gpointer number);
 macro_t *get_shortcuts (gint *);
+gchar    macro_get_format_type (const gchar *action);
+gboolean macro_has_format_arg  (const gchar *action);
+void     send_macro_with_arg   (gint macro_index, const gchar *arg_str);
 
 #endif
 
