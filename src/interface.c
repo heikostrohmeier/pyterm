@@ -576,23 +576,55 @@ static void macro_arg_data_free(gpointer data)
 	g_free(d);
 }
 
+static gchar *
+get_arg_value_from_widget(GtkWidget *widget)
+{
+	if (GTK_IS_ENTRY(widget))
+		return g_strdup(gtk_entry_get_text(GTK_ENTRY(widget)));
+	if (GTK_IS_COMBO_BOX(widget))
+	{
+		GtkTreeIter iter;
+		GtkTreeModel *model = gtk_combo_box_get_model(GTK_COMBO_BOX(widget));
+		if (gtk_combo_box_get_active_iter(GTK_COMBO_BOX(widget), &iter))
+		{
+			gchar *value = NULL;
+			gtk_tree_model_get(model, &iter, 1, &value, -1);
+			return value;
+		}
+	}
+	return g_strdup("");
+}
+
+static void
+save_arg_from_widget(GtkWidget *widget)
+{
+	gint macro_index = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(widget), "macro-index"));
+	gint arg_index   = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(widget), "arg-index"));
+	gchar *val = get_arg_value_from_widget(widget);
+	macro_set_arg(macro_index, arg_index, val);
+	g_free(val);
+	save_config_silent();
+}
+
 static void on_macro_arg_button_clicked(GtkWidget *widget, gpointer data)
 {
 	MacroArgData *d = (MacroArgData *)g_object_get_data(G_OBJECT(widget), "macro-data");
 	if (d == NULL) return;
 	const gchar **args = g_new(const gchar *, d->n_entries);
 	for (gint k = 0; k < d->n_entries; k++)
-		args[k] = gtk_entry_get_text(GTK_ENTRY(d->entries[k]));
+	{
+		gchar *val = get_arg_value_from_widget(d->entries[k]);
+		args[k] = val;
+	}
 	send_macro_with_args(d->macro_index, args, d->n_entries);
+	for (gint k = 0; k < d->n_entries; k++)
+		g_free((gchar *)args[k]);
 	g_free(args);
 }
 
 static void save_entry_arg(GtkWidget *entry)
 {
-	gint macro_index = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(entry), "macro-index"));
-	gint arg_index   = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(entry), "arg-index"));
-	macro_set_arg(macro_index, arg_index, gtk_entry_get_text(GTK_ENTRY(entry)));
-	save_config_silent();
+	save_arg_from_widget(entry);
 }
 
 static gboolean on_macro_arg_entry_focus_out(GtkWidget *entry, GdkEvent *event, gpointer data)
@@ -690,7 +722,7 @@ void rebuild_macro_buttons(void)
 			gint n_args = macro_count_format_args(macros[i].action);
 			if (n_args > 0)
 			{
-				gchar *types = macro_get_format_types(macros[i].action, NULL);
+				macro_arg_info_t *arg_infos = macro_get_arg_infos(macros[i].action, NULL);
 				GtkWidget *hbox   = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 2);
 				GtkWidget *button = gtk_button_new_with_label(macros[i].label);
 
@@ -707,30 +739,62 @@ void rebuild_macro_buttons(void)
 
 				for (gint k = 0; k < n_args; k++)
 				{
-					GtkWidget *entry = gtk_entry_new();
-					d->entries[k] = entry;
+					GtkWidget *widget;
 
-					const gchar *placeholder =
-					    (types[k] == 's')                         ? "text" :
-					    (strchr("feEgGaA", types[k]) != NULL)     ? "0.0"  : "0";
-					gtk_entry_set_placeholder_text(GTK_ENTRY(entry), placeholder);
-					gtk_entry_set_width_chars(GTK_ENTRY(entry), 6);
+					if (arg_infos[k].type == 'l' && arg_infos[k].list_name != NULL)
+					{
+						/* Argument de liste : GtkComboBox avec GtkListStore */
+						GtkListStore *store = gtk_list_store_new(2, G_TYPE_STRING, G_TYPE_STRING);
+						gint list_idx = macro_list_find(arg_infos[k].list_name);
+						if (list_idx >= 0)
+						{
+							gint n_entries = macro_list_entry_count(list_idx);
+							for (gint ei = 0; ei < n_entries; ei++)
+							{
+								GtkTreeIter iter;
+								gtk_list_store_append(store, &iter);
+								gtk_list_store_set(store, &iter,
+								                   0, macro_list_entry_display(list_idx, ei),
+								                   1, macro_list_entry_value(list_idx, ei),
+								                   -1);
+							}
+						}
+						widget = gtk_combo_box_new_with_model(GTK_TREE_MODEL(store));
+						g_object_unref(store);
+						GtkCellRenderer *renderer = gtk_cell_renderer_text_new();
+						gtk_cell_layout_pack_start(GTK_CELL_LAYOUT(widget), renderer, TRUE);
+						gtk_cell_layout_set_attributes(GTK_CELL_LAYOUT(widget), renderer,
+						                              "text", 0, NULL);
+						gtk_combo_box_set_active(GTK_COMBO_BOX(widget), 0);
+					}
+					else
+					{
+						/* Argument classique : GtkEntry */
+						widget = gtk_entry_new();
 
-					/* Pré-remplir avec la dernière valeur sauvegardée */
-					if (macros[i].args != NULL && k < (gint)g_strv_length(macros[i].args))
-						gtk_entry_set_text(GTK_ENTRY(entry), macros[i].args[k]);
+						const gchar *placeholder =
+						    (arg_infos[k].type == 's')                         ? "text" :
+						    (strchr("feEgGaA", arg_infos[k].type) != NULL)     ? "0.0"  : "0";
+						gtk_entry_set_placeholder_text(GTK_ENTRY(widget), placeholder);
+						gtk_entry_set_width_chars(GTK_ENTRY(widget), 6);
 
-					/* Stocker les index pour la sauvegarde */
-					g_object_set_data(G_OBJECT(entry), "macro-index", GINT_TO_POINTER(i));
-					g_object_set_data(G_OBJECT(entry), "arg-index",   GINT_TO_POINTER(k));
+						if (macros[i].args != NULL && k < (gint)g_strv_length(macros[i].args))
+							gtk_entry_set_text(GTK_ENTRY(widget), macros[i].args[k]);
+					}
 
-					g_signal_connect(entry, "activate",
-					                 G_CALLBACK(on_macro_arg_entry_activate), button);
-					g_signal_connect(entry, "focus-out-event",
+					d->entries[k] = widget;
+
+					g_object_set_data(G_OBJECT(widget), "macro-index", GINT_TO_POINTER(i));
+					g_object_set_data(G_OBJECT(widget), "arg-index",   GINT_TO_POINTER(k));
+
+					g_signal_connect(widget, "focus-out-event",
 					                 G_CALLBACK(on_macro_arg_entry_focus_out), NULL);
-					gtk_box_pack_start(GTK_BOX(hbox), entry, TRUE, TRUE, 0);
+					if (GTK_IS_ENTRY(widget))
+						g_signal_connect(widget, "activate",
+						                 G_CALLBACK(on_macro_arg_entry_activate), button);
+					gtk_box_pack_start(GTK_BOX(hbox), widget, TRUE, TRUE, 0);
 				}
-				g_free(types);
+				macro_arg_infos_free(arg_infos, n_args);
 				gtk_box_pack_start(GTK_BOX(vbox), hbox, FALSE, FALSE, 2);
 			}
 			else

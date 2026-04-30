@@ -38,8 +38,161 @@ enum
   NUM_COLUMNS
 };
 
+enum
+{
+  LIST_COLUMN_NAME,
+  LIST_COLUMN_DISPLAY,
+  LIST_COLUMN_VALUE,
+  LIST_NUM_COLUMNS
+};
+
 macro_t *macros = NULL;
 static GtkWidget *window = NULL;
+static GtkTreeModel *lists_model = NULL;
+
+/* --- Gestion des listes globales --- */
+static GPtrArray *macro_lists = NULL;
+
+static void
+list_entry_free (gpointer data)
+{
+  list_entry_t *e = (list_entry_t *) data;
+  if (e)
+    {
+      g_free (e->display);
+      g_free (e->value);
+      g_free (e);
+    }
+}
+
+static void
+macro_list_free (gpointer data)
+{
+  macro_list_t *ml = (macro_list_t *) data;
+  if (ml)
+    {
+      g_free (ml->name);
+      g_ptr_array_unref (ml->entries);
+      g_free (ml);
+    }
+}
+
+void
+macro_lists_init (void)
+{
+  if (!macro_lists)
+    macro_lists = g_ptr_array_new_with_free_func (macro_list_free);
+}
+
+void
+macro_lists_free (void)
+{
+  if (macro_lists)
+    {
+      g_ptr_array_unref (macro_lists);
+      macro_lists = NULL;
+    }
+}
+
+gint
+macro_list_find (const gchar *name)
+{
+  if (!macro_lists || !name)
+    return -1;
+  for (guint i = 0; i < macro_lists->len; i++)
+    {
+      macro_list_t *ml = g_ptr_array_index (macro_lists, i);
+      if (g_strcmp0 (ml->name, name) == 0)
+        return (gint) i;
+    }
+  return -1;
+}
+
+void
+macro_list_add (const gchar *name, const gchar *display, const gchar *value)
+{
+  if (!name || !display)
+    return;
+
+  macro_lists_init ();
+
+  gint idx = macro_list_find (name);
+  macro_list_t *ml;
+
+  if (idx < 0)
+    {
+      ml = g_new0 (macro_list_t, 1);
+      ml->name = g_strdup (name);
+      ml->entries = g_ptr_array_new_with_free_func (list_entry_free);
+      g_ptr_array_add (macro_lists, ml);
+    }
+  else
+    {
+      ml = g_ptr_array_index (macro_lists, idx);
+    }
+
+  list_entry_t *entry = g_new0 (list_entry_t, 1);
+  entry->display = g_strdup (display);
+  entry->value = g_strdup (value ? value : display);
+  g_ptr_array_add (ml->entries, entry);
+}
+
+void
+macro_list_remove_entry (gint list_idx, gint entry_idx)
+{
+  if (!macro_lists || list_idx < 0 || (guint) list_idx >= macro_lists->len)
+    return;
+  macro_list_t *ml = g_ptr_array_index (macro_lists, list_idx);
+  if (entry_idx < 0 || (guint) entry_idx >= ml->entries->len)
+    return;
+  g_ptr_array_remove_index (ml->entries, entry_idx);
+}
+
+gint
+macro_list_entry_count (gint list_idx)
+{
+  if (!macro_lists || list_idx < 0 || (guint) list_idx >= macro_lists->len)
+    return 0;
+  macro_list_t *ml = (macro_list_t *) g_ptr_array_index (macro_lists, list_idx);
+  return (gint) ml->entries->len;
+}
+
+const gchar *
+macro_list_entry_display (gint list_idx, gint entry_idx)
+{
+  if (!macro_lists || list_idx < 0 || (guint) list_idx >= macro_lists->len)
+    return NULL;
+  macro_list_t *ml = (macro_list_t *) g_ptr_array_index (macro_lists, list_idx);
+  if (entry_idx < 0 || (guint) entry_idx >= ml->entries->len)
+    return NULL;
+  return ((list_entry_t *) g_ptr_array_index (ml->entries, entry_idx))->display;
+}
+
+const gchar *
+macro_list_entry_value (gint list_idx, gint entry_idx)
+{
+  if (!macro_lists || list_idx < 0 || (guint) list_idx >= macro_lists->len)
+    return NULL;
+  macro_list_t *ml = (macro_list_t *) g_ptr_array_index (macro_lists, list_idx);
+  if (entry_idx < 0 || (guint) entry_idx >= ml->entries->len)
+    return NULL;
+  return ((list_entry_t *) g_ptr_array_index (ml->entries, entry_idx))->value;
+}
+
+gint
+macro_list_count (void)
+{
+  return macro_lists ? (gint) macro_lists->len : 0;
+}
+
+const gchar *
+macro_list_name (gint list_idx)
+{
+  if (!macro_lists || list_idx < 0 || (guint) list_idx >= macro_lists->len)
+    return NULL;
+  macro_list_t *ml = (macro_list_t *) g_ptr_array_index (macro_lists, list_idx);
+  return ml->name;
+}
 
 macro_t *
 get_shortcuts (gint *size)
@@ -193,6 +346,31 @@ parse_one_spec (const gchar *action, gint start, gint *end_out)
   return '\0';
 }
 
+/* Parse un spécificateur de liste %#NomListe.
+   Retourne TRUE si c'est une liste, écrit le nom dans *name_out (à libérer) et la fin dans *end_out. */
+static gboolean
+try_parse_list_spec (const gchar *action, gint start, gchar **name_out, gint *end_out)
+{
+  if (action[start] != '%' || action[start + 1] != '#')
+    return FALSE;
+
+  gint j = start + 2;
+  gint name_start = j;
+
+  while (g_ascii_isalnum (action[j]) || action[j] == '_' || action[j] == '-')
+    j++;
+
+  if (j == name_start)
+    return FALSE;
+
+  gchar *name = g_strndup (&action[name_start], j - name_start);
+  if (name_out)
+    *name_out = name;
+  if (end_out)
+    *end_out = j - 1;
+  return TRUE;
+}
+
 /* Applique un spécificateur isolé sur une valeur string et retourne le résultat alloué. */
 static gchar *
 apply_spec (const gchar *spec, gchar fmt_type, const gchar *arg_str)
@@ -268,6 +446,17 @@ macro_count_format_args (const gchar *action)
           i++;
           continue;
         }
+      {
+        gchar *list_name = NULL;
+        gint end;
+        if (try_parse_list_spec (action, i, &list_name, &end))
+          {
+            count++;
+            i = end;
+            g_free (list_name);
+            continue;
+          }
+      }
       gint end;
       if (parse_one_spec (action, i, &end) != '\0')
         {
@@ -298,6 +487,17 @@ macro_get_format_types (const gchar *action, gint *count_out)
           i++;
           continue;
         }
+      {
+        gchar *list_name = NULL;
+        gint end;
+        if (try_parse_list_spec (action, i, &list_name, &end))
+          {
+            types[idx++] = 'l';
+            i = end;
+            g_free (list_name);
+            continue;
+          }
+      }
       gint end;
       gchar t = parse_one_spec (action, i, &end);
       if (t != '\0')
@@ -308,6 +508,67 @@ macro_get_format_types (const gchar *action, gint *count_out)
     }
   types[n] = '\0';
   return types;
+}
+
+/* Retourne un tableau d'infos sur les arguments (type + nom de liste si applicable).
+   À libérer avec macro_arg_infos_free(). */
+macro_arg_info_t *
+macro_get_arg_infos (const gchar *action, gint *count_out)
+{
+  gint n = macro_count_format_args (action);
+  if (count_out)
+    *count_out = n;
+  if (n == 0)
+    return NULL;
+
+  macro_arg_info_t *infos = g_new0 (macro_arg_info_t, n);
+  gint idx = 0;
+
+  for (gint i = 0; action[i] != '\0' && idx < n; i++)
+    {
+      if (action[i] != '%')
+        continue;
+      if (action[i + 1] == '%')
+        {
+          i++;
+          continue;
+        }
+
+      {
+        gchar *list_name = NULL;
+        gint end;
+        if (try_parse_list_spec (action, i, &list_name, &end))
+          {
+            infos[idx].type = 'l';
+            infos[idx].list_name = list_name;
+            idx++;
+            i = end;
+            continue;
+          }
+      }
+
+      gint end;
+      gchar t = parse_one_spec (action, i, &end);
+      if (t != '\0')
+        {
+          infos[idx].type = t;
+          infos[idx].list_name = NULL;
+          idx++;
+          i = end;
+        }
+    }
+
+  return infos;
+}
+
+void
+macro_arg_infos_free (macro_arg_info_t *infos, gint count)
+{
+  if (!infos)
+    return;
+  for (gint i = 0; i < count; i++)
+    g_free (infos[i].list_name);
+  g_free (infos);
 }
 
 /* Construit la chaîne d'action en substituant chaque spécificateur par l'argument correspondant. */
@@ -330,6 +591,22 @@ format_action_with_args (const gchar *action, const gchar **args, gint n_args)
           i++;
           continue;
         }
+
+      {
+        gchar *list_name = NULL;
+        gint list_end;
+        if (try_parse_list_spec (action, i, &list_name, &list_end))
+          {
+            if (arg_idx < n_args)
+              g_string_append (result, args[arg_idx] ? args[arg_idx] : "");
+            else
+              g_string_append_len (result, &action[i], list_end - i + 1);
+            arg_idx++;
+            i = list_end;
+            g_free (list_name);
+            continue;
+          }
+      }
 
       gint spec_end;
       gchar fmt_type = parse_one_spec (action, i, &spec_end);
@@ -725,6 +1002,8 @@ Move_down (GtkWidget *button, gpointer pointer)
   return FALSE;
 }
 
+static void save_lists_from_model (GtkTreeModel *model);
+
 static gboolean
 Save_shortcuts (GtkWidget *button, gpointer pointer)
 {
@@ -793,6 +1072,11 @@ Save_shortcuts (GtkWidget *button, gpointer pointer)
   g_free (saved_args);
 
   add_shortcuts ();
+
+  /* Sauvegarder les listes depuis le modèle */
+  if (lists_model)
+    save_lists_from_model (lists_model);
+
   rebuild_macro_buttons ();
   save_config_silent ();
   return FALSE;
@@ -898,6 +1182,201 @@ Help_screen (GtkWidget *button, gpointer pointer)
   return FALSE;
 }
 
+/* --- Onglet Lists --- */
+
+static GtkTreeModel *
+create_lists_model (void)
+{
+  GtkListStore *store = gtk_list_store_new (LIST_NUM_COLUMNS,
+                                            G_TYPE_STRING,
+                                            G_TYPE_STRING,
+                                            G_TYPE_STRING);
+
+  gint n_lists = macro_list_count ();
+  for (gint li = 0; li < n_lists; li++)
+    {
+      gint n_entries = macro_list_entry_count (li);
+      for (gint ei = 0; ei < n_entries; ei++)
+        {
+          GtkTreeIter iter;
+          gtk_list_store_append (store, &iter);
+          gtk_list_store_set (store, &iter,
+                              LIST_COLUMN_NAME, macro_list_name (li),
+                              LIST_COLUMN_DISPLAY, macro_list_entry_display (li, ei),
+                              LIST_COLUMN_VALUE, macro_list_entry_value (li, ei),
+                              -1);
+        }
+    }
+
+  return GTK_TREE_MODEL (store);
+}
+
+static gboolean
+list_name_edited (GtkCellRendererText *cell,
+                  const gchar *path_string,
+                  const gchar *new_text,
+                  gpointer data)
+{
+  GtkTreeModel *model = (GtkTreeModel *) data;
+  GtkTreeIter iter;
+  GtkTreePath *path = gtk_tree_path_new_from_string (path_string);
+
+  if (gtk_tree_model_get_iter (model, &iter, path))
+    gtk_list_store_set (GTK_LIST_STORE (model), &iter, LIST_COLUMN_NAME, new_text, -1);
+
+  gtk_tree_path_free (path);
+  return TRUE;
+}
+
+static gboolean
+list_display_edited (GtkCellRendererText *cell,
+                     const gchar *path_string,
+                     const gchar *new_text,
+                     gpointer data)
+{
+  GtkTreeModel *model = (GtkTreeModel *) data;
+  GtkTreeIter iter;
+  GtkTreePath *path = gtk_tree_path_new_from_string (path_string);
+
+  if (gtk_tree_model_get_iter (model, &iter, path))
+    gtk_list_store_set (GTK_LIST_STORE (model), &iter, LIST_COLUMN_DISPLAY, new_text, -1);
+
+  gtk_tree_path_free (path);
+  return TRUE;
+}
+
+static gboolean
+list_value_edited (GtkCellRendererText *cell,
+                   const gchar *path_string,
+                   const gchar *new_text,
+                   gpointer data)
+{
+  GtkTreeModel *model = (GtkTreeModel *) data;
+  GtkTreeIter iter;
+  GtkTreePath *path = gtk_tree_path_new_from_string (path_string);
+
+  if (gtk_tree_model_get_iter (model, &iter, path))
+    gtk_list_store_set (GTK_LIST_STORE (model), &iter, LIST_COLUMN_VALUE, new_text, -1);
+
+  gtk_tree_path_free (path);
+  return TRUE;
+}
+
+static void
+add_list_columns (GtkTreeView *treeview)
+{
+  GtkCellRenderer *renderer;
+  GtkTreeViewColumn *column;
+  GtkTreeModel *model = gtk_tree_view_get_model (treeview);
+
+  renderer = gtk_cell_renderer_text_new ();
+  g_signal_connect (renderer, "edited", G_CALLBACK (list_name_edited), model);
+  g_object_set (G_OBJECT (renderer), "editable", TRUE, NULL);
+  column = gtk_tree_view_column_new_with_attributes (_ ("List"), renderer, "text", LIST_COLUMN_NAME, NULL);
+  gtk_tree_view_append_column (treeview, column);
+
+  renderer = gtk_cell_renderer_text_new ();
+  g_signal_connect (renderer, "edited", G_CALLBACK (list_display_edited), model);
+  g_object_set (G_OBJECT (renderer), "editable", TRUE, NULL);
+  column = gtk_tree_view_column_new_with_attributes (_ ("Display"), renderer, "text", LIST_COLUMN_DISPLAY, NULL);
+  gtk_tree_view_append_column (treeview, column);
+
+  renderer = gtk_cell_renderer_text_new ();
+  g_signal_connect (renderer, "edited", G_CALLBACK (list_value_edited), model);
+  g_object_set (G_OBJECT (renderer), "editable", TRUE, NULL);
+  column = gtk_tree_view_column_new_with_attributes (_ ("Value"), renderer, "text", LIST_COLUMN_VALUE, NULL);
+  gtk_tree_view_append_column (treeview, column);
+}
+
+static gboolean
+Add_list_entry (GtkWidget *button, gpointer pointer)
+{
+  GtkTreeIter iter;
+
+  gtk_list_store_append (GTK_LIST_STORE (lists_model), &iter);
+  gtk_list_store_set (GTK_LIST_STORE (lists_model), &iter,
+                      LIST_COLUMN_NAME, "NewList",
+                      LIST_COLUMN_DISPLAY, "display",
+                      LIST_COLUMN_VALUE, "value",
+                      -1);
+
+  return FALSE;
+}
+
+static gboolean
+Delete_list_entry (GtkWidget *button, gpointer pointer)
+{
+  GtkTreeIter iter;
+  GtkTreeView *treeview = (GtkTreeView *) pointer;
+  GtkTreeSelection *selection = gtk_tree_view_get_selection (treeview);
+
+  if (gtk_tree_selection_get_selected (selection, NULL, &iter))
+    {
+      gtk_list_store_remove (GTK_LIST_STORE (gtk_tree_view_get_model (treeview)), &iter);
+    }
+
+  return FALSE;
+}
+
+static void
+save_lists_from_model (GtkTreeModel *model)
+{
+  macro_lists_free ();
+  macro_lists_init ();
+
+  GtkTreeIter iter;
+  if (gtk_tree_model_get_iter_first (model, &iter))
+    {
+      do
+        {
+          gchar *name = NULL, *display = NULL, *value = NULL;
+          gtk_tree_model_get (model, &iter,
+                              LIST_COLUMN_NAME, &name,
+                              LIST_COLUMN_DISPLAY, &display,
+                              LIST_COLUMN_VALUE, &value,
+                              -1);
+          if (name && display)
+            macro_list_add (name, display, value ? value : display);
+          g_free (name);
+          g_free (display);
+          g_free (value);
+        }
+      while (gtk_tree_model_iter_next (model, &iter));
+    }
+}
+
+static GtkWidget *
+build_lists_page (void)
+{
+  GtkWidget *vbox = gtk_box_new (GTK_ORIENTATION_VERTICAL, 8);
+  gtk_container_set_border_width (GTK_CONTAINER (vbox), 8);
+
+  GtkWidget *sw = gtk_scrolled_window_new (NULL, NULL);
+  gtk_scrolled_window_set_shadow_type (GTK_SCROLLED_WINDOW (sw), GTK_SHADOW_ETCHED_IN);
+  gtk_scrolled_window_set_policy (GTK_SCROLLED_WINDOW (sw), GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
+  gtk_box_pack_start (GTK_BOX (vbox), sw, TRUE, TRUE, 0);
+
+  lists_model = create_lists_model ();
+  GtkWidget *treeview = gtk_tree_view_new_with_model (lists_model);
+
+  add_list_columns (GTK_TREE_VIEW (treeview));
+  gtk_container_add (GTK_CONTAINER (sw), treeview);
+
+  GtkWidget *hbox = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 4);
+  gtk_box_set_homogeneous (GTK_BOX (hbox), TRUE);
+  gtk_box_pack_start (GTK_BOX (vbox), hbox, FALSE, FALSE, 0);
+
+  GtkWidget *button = gtk_button_new_with_mnemonic (_ ("_Add Entry"));
+  g_signal_connect (button, "clicked", G_CALLBACK (Add_list_entry), NULL);
+  gtk_box_pack_start (GTK_BOX (hbox), button, TRUE, TRUE, 0);
+
+  button = gtk_button_new_with_mnemonic (_ ("_Delete Entry"));
+  g_signal_connect (button, "clicked", G_CALLBACK (Delete_list_entry), (gpointer) treeview);
+  gtk_box_pack_start (GTK_BOX (hbox), button, TRUE, TRUE, 0);
+
+  return vbox;
+}
+
 void
 Config_macros (GtkAction *action, gpointer data)
 {
@@ -908,7 +1387,7 @@ Config_macros (GtkAction *action, gpointer data)
   GtkWidget *button;
   GtkWidget *separator;
   g_print ("Config_macros called\n");
-  /* create window, etc */
+
   window = gtk_window_new (GTK_WINDOW_TOPLEVEL);
   gtk_window_set_title (GTK_WINDOW (window), _ ("Configure Macros"));
 
@@ -919,35 +1398,30 @@ Config_macros (GtkAction *action, gpointer data)
   vbox = gtk_box_new (GTK_ORIENTATION_VERTICAL, 8);
   gtk_container_add (GTK_CONTAINER (window), vbox);
 
+  /* --- Notebook avec onglets Macros et Lists --- */
+  GtkWidget *notebook = gtk_notebook_new ();
+
+  /* Onglet Macros */
   sw = gtk_scrolled_window_new (NULL, NULL);
-  gtk_scrolled_window_set_shadow_type (GTK_SCROLLED_WINDOW (sw),
-                                       GTK_SHADOW_ETCHED_IN);
-  gtk_scrolled_window_set_policy (GTK_SCROLLED_WINDOW (sw),
-                                  GTK_POLICY_NEVER,
-                                  GTK_POLICY_AUTOMATIC);
-  gtk_box_pack_start (GTK_BOX (vbox), sw, TRUE, TRUE, 0);
+  gtk_scrolled_window_set_shadow_type (GTK_SCROLLED_WINDOW (sw), GTK_SHADOW_ETCHED_IN);
+  gtk_scrolled_window_set_policy (GTK_SCROLLED_WINDOW (sw), GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
 
-  /* create tree model */
   model = create_model ();
-
-  /* create tree view */
   treeview = gtk_tree_view_new_with_model (model);
   gtk_tree_view_set_rules_hint (GTK_TREE_VIEW (treeview), TRUE);
-  gtk_tree_view_set_search_column (GTK_TREE_VIEW (treeview),
-                                   COLUMN_SHORTCUT);
-
+  gtk_tree_view_set_search_column (GTK_TREE_VIEW (treeview), COLUMN_SHORTCUT);
   g_object_unref (model);
 
   gtk_container_add (GTK_CONTAINER (sw), treeview);
-
-  /* add columns to the tree view */
   add_columns (GTK_TREE_VIEW (treeview));
 
-  g_signal_connect (window, "delete-event", G_CALLBACK (on_window_close), (gpointer) treeview);
+  GtkWidget *macros_vbox = gtk_box_new (GTK_ORIENTATION_VERTICAL, 8);
+  gtk_container_set_border_width (GTK_CONTAINER (macros_vbox), 8);
+  gtk_box_pack_start (GTK_BOX (macros_vbox), sw, TRUE, TRUE, 0);
 
   hbox = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 4);
   gtk_box_set_homogeneous (GTK_BOX (hbox), TRUE);
-  gtk_box_pack_start (GTK_BOX (vbox), hbox, FALSE, FALSE, 0);
+  gtk_box_pack_start (GTK_BOX (macros_vbox), hbox, FALSE, FALSE, 0);
 
   button = gtk_button_new_with_mnemonic (_ ("_Add"));
   g_signal_connect (button, "clicked", G_CALLBACK (Add_shortcut), (gpointer) model);
@@ -967,7 +1441,7 @@ Config_macros (GtkAction *action, gpointer data)
 
   hbox = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 4);
   gtk_box_set_homogeneous (GTK_BOX (hbox), TRUE);
-  gtk_box_pack_start (GTK_BOX (vbox), hbox, FALSE, FALSE, 0);
+  gtk_box_pack_start (GTK_BOX (macros_vbox), hbox, FALSE, FALSE, 0);
 
   button = gtk_button_new_with_mnemonic (_ ("Move _Up"));
   g_signal_connect (button, "clicked", G_CALLBACK (Move_up), (gpointer) treeview);
@@ -977,6 +1451,16 @@ Config_macros (GtkAction *action, gpointer data)
   g_signal_connect (button, "clicked", G_CALLBACK (Move_down), (gpointer) treeview);
   gtk_box_pack_start (GTK_BOX (hbox), button, TRUE, TRUE, 0);
 
+  gtk_notebook_append_page (GTK_NOTEBOOK (notebook), macros_vbox, gtk_label_new (_ ("Macros")));
+
+  /* Onglet Lists */
+  GtkWidget *lists_page = build_lists_page ();
+  gtk_notebook_append_page (GTK_NOTEBOOK (notebook), lists_page, gtk_label_new (_ ("Lists")));
+
+  gtk_box_pack_start (GTK_BOX (vbox), notebook, TRUE, TRUE, 0);
+
+  g_signal_connect (window, "delete-event", G_CALLBACK (on_window_close), (gpointer) treeview);
+
   separator = gtk_separator_new (GTK_ORIENTATION_HORIZONTAL);
   gtk_box_pack_start (GTK_BOX (vbox), separator, FALSE, TRUE, 0);
 
@@ -984,20 +1468,20 @@ Config_macros (GtkAction *action, gpointer data)
   gtk_box_set_homogeneous (GTK_BOX (hbox), TRUE);
   gtk_box_pack_start (GTK_BOX (vbox), hbox, FALSE, FALSE, 0);
 
-  button = gtk_button_new_from_stock (GTK_STOCK_HELP);
+  button = gtk_button_new_with_label (_ ("Help"));
   g_signal_connect (button, "clicked", G_CALLBACK (Help_screen), (gpointer) window);
   gtk_box_pack_start (GTK_BOX (hbox), button, TRUE, TRUE, 0);
 
-  button = gtk_button_new_from_stock (GTK_STOCK_OK);
+  button = gtk_button_new_with_label (_ ("OK"));
   g_signal_connect (button, "clicked", G_CALLBACK (Save_shortcuts), (gpointer) treeview);
   g_signal_connect_swapped (button, "clicked", G_CALLBACK (gtk_widget_destroy), (gpointer) window);
   gtk_box_pack_end (GTK_BOX (hbox), button, TRUE, TRUE, 0);
 
-  button = gtk_button_new_from_stock (GTK_STOCK_CANCEL);
+  button = gtk_button_new_with_label (_ ("Cancel"));
   g_signal_connect_swapped (button, "clicked", G_CALLBACK (gtk_widget_destroy), (gpointer) window);
   gtk_box_pack_end (GTK_BOX (hbox), button, TRUE, TRUE, 0);
 
-  gtk_window_set_default_size (GTK_WINDOW (window), 300, 400);
+  gtk_window_set_default_size (GTK_WINDOW (window), 400, 500);
 
   gtk_widget_show_all (window);
 }

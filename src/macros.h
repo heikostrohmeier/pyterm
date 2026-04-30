@@ -25,6 +25,43 @@ typedef struct
   GClosure *closure;
 } macro_t;
 
+/* --- Listes de valeurs (%#NomListe) --- */
+
+typedef struct
+{
+  gchar *display;  /* texte affiché dans le combo */
+  gchar *value;    /* valeur envoyée sur le port série */
+} list_entry_t;
+
+typedef struct
+{
+  gchar *name;              /* nom de la liste (ex: "Commands") */
+  GPtrArray *entries;       /* GPtrArray de list_entry_t* */
+} macro_list_t;
+
+/* Gestion des listes globales */
+void     macro_lists_init (void);
+void     macro_lists_free (void);
+gint     macro_list_find  (const gchar *name);
+void     macro_list_add   (const gchar *name, const gchar *display, const gchar *value);
+void     macro_list_remove_entry (gint list_idx, gint entry_idx);
+gint     macro_list_entry_count (gint list_idx);
+const gchar *macro_list_entry_display (gint list_idx, gint entry_idx);
+const gchar *macro_list_entry_value   (gint list_idx, gint entry_idx);
+gint     macro_list_count (void);
+const gchar *macro_list_name (gint list_idx);
+
+/* --- Info sur les arguments d'une macro (inclut les listes) --- */
+
+typedef struct
+{
+  gchar  type;           /* 'd','f','s'... ou 'l' pour liste */
+  gchar *list_name;      /* nom de la liste si type=='l', sinon NULL */
+} macro_arg_info_t;
+
+macro_arg_info_t *macro_get_arg_infos (const gchar *action, gint *count_out);
+void              macro_arg_infos_free (macro_arg_info_t *infos, gint count);
+
 void Config_macros (GtkAction *action, gpointer data);
 void remove_shortcuts (void);
 void add_shortcuts (void);

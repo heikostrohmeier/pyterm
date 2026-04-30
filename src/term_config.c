@@ -77,6 +77,7 @@ gint *esc_clear_screen;
 gint *timestamp;
 gint *show_rxtx;
 cfgList **macro_list = NULL;
+cfgList **macro_lists_cfg = NULL;
 gchar **font;
 
 gint *block_cursor;
@@ -114,6 +115,7 @@ cfgStruct cfg[] =
 	{"show_rxtx", CFG_BOOL, &show_rxtx},
 	{"font", CFG_STRING, &font},
 	{"macros", CFG_STRING_LIST, &macro_list},
+	{"macro_lists", CFG_STRING_LIST, &macro_lists_cfg},
 	{"term_block_cursor", CFG_BOOL, &block_cursor},
 	{"term_rows", CFG_INT, &rows},
 	{"term_columns", CFG_INT, &columns},
@@ -1313,6 +1315,41 @@ gint Load_configuration_from_file(gchar *config_name)
                                 rebuild_macro_buttons();
 				g_free(macros);
 
+				/* Chargement des listes de valeurs */
+				{
+					macro_lists_init();
+					cfgList *ml = macro_lists_cfg[i];
+					while (ml != NULL)
+					{
+						gchar *colon = strchr(ml->str, ':');
+						if (colon)
+						{
+							gchar *list_name = g_strndup(ml->str, colon - ml->str);
+							gchar *entries_str = colon + 1;
+							gchar **entries = g_strsplit(entries_str, "|", -1);
+							for (gint ei = 0; entries[ei] != NULL; ei++)
+							{
+								gchar *eq = strchr(entries[ei], '=');
+								if (eq)
+								{
+									gchar *display = g_strndup(entries[ei], eq - entries[ei]);
+									gchar *value = g_strdup(eq + 1);
+									macro_list_add(list_name, display, value);
+									g_free(display);
+									g_free(value);
+								}
+								else
+								{
+									macro_list_add(list_name, entries[ei], entries[ei]);
+								}
+							}
+							g_strfreev(entries);
+							g_free(list_name);
+						}
+						ml = ml->next;
+					}
+				}
+
 				if(block_cursor[i] != -1)
 					term_conf.block_cursor = (gboolean)block_cursor[i];
 				else
@@ -1625,6 +1662,27 @@ void Copy_configuration(int pos)
 		g_free(args_str);
 		cfgStoreValue(cfg, "macros", string, CFG_INI, pos);
 		g_free(string);
+	}
+
+	/* Sauvegarde des listes de valeurs */
+	{
+		gint n_lists = macro_list_count();
+		for (i = 0; i < n_lists; i++)
+		{
+			GString *list_str = g_string_new(macro_list_name(i));
+			g_string_append_c(list_str, ':');
+			gint n_entries = macro_list_entry_count(i);
+			for (gint ei = 0; ei < n_entries; ei++)
+			{
+				if (ei > 0)
+					g_string_append_c(list_str, '|');
+				g_string_append(list_str, macro_list_entry_display(i, ei));
+				g_string_append_c(list_str, '=');
+				g_string_append(list_str, macro_list_entry_value(i, ei));
+			}
+			cfgStoreValue(cfg, "macro_lists", list_str->str, CFG_INI, pos);
+			g_string_free(list_str, TRUE);
+		}
 	}
 
 	if(term_conf.block_cursor == FALSE)
