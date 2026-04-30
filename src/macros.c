@@ -1374,6 +1374,18 @@ build_lists_page (void)
   g_signal_connect (button, "clicked", G_CALLBACK (Delete_list_entry), (gpointer) treeview);
   gtk_box_pack_start (GTK_BOX (hbox), button, TRUE, TRUE, 0);
 
+  hbox = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 4);
+  gtk_box_set_homogeneous (GTK_BOX (hbox), TRUE);
+  gtk_box_pack_start (GTK_BOX (vbox), hbox, FALSE, FALSE, 0);
+
+  button = gtk_button_new_with_mnemonic (_ ("Move _Up"));
+  g_signal_connect (button, "clicked", G_CALLBACK (Move_up), (gpointer) treeview);
+  gtk_box_pack_start (GTK_BOX (hbox), button, TRUE, TRUE, 0);
+
+  button = gtk_button_new_with_mnemonic (_ ("Move _Down"));
+  g_signal_connect (button, "clicked", G_CALLBACK (Move_down), (gpointer) treeview);
+  gtk_box_pack_start (GTK_BOX (hbox), button, TRUE, TRUE, 0);
+
   return vbox;
 }
 
