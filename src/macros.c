@@ -663,6 +663,69 @@ Delete_shortcut (GtkWidget *button, gpointer pointer)
 }
 
 static gboolean
+Move_up (GtkWidget *button, gpointer pointer)
+{
+  GtkTreeIter iter;
+  GtkTreeView *treeview = (GtkTreeView *) pointer;
+  GtkTreeModel *model = gtk_tree_view_get_model (treeview);
+  GtkTreeSelection *selection = gtk_tree_view_get_selection (treeview);
+
+  if (!gtk_tree_selection_get_selected (selection, NULL, &iter))
+    return FALSE;
+
+  GtkTreePath *path = gtk_tree_model_get_path (model, &iter);
+  gint row = gtk_tree_path_get_indices (path)[0];
+  gtk_tree_path_free (path);
+
+  if (row > 0)
+    {
+      GtkTreePath *target = gtk_tree_path_new_from_indices (row - 1, -1);
+      GtkTreeIter target_iter;
+      gtk_tree_model_get_iter (model, &target_iter, target);
+      gtk_list_store_move_before (GTK_LIST_STORE (model), &iter, &target_iter);
+      gtk_tree_path_free (target);
+      target = gtk_tree_path_new_from_indices (row - 1, -1);
+      gtk_tree_model_get_iter (model, &iter, target);
+      gtk_tree_selection_select_iter (selection, &iter);
+      gtk_tree_path_free (target);
+    }
+
+  return FALSE;
+}
+
+static gboolean
+Move_down (GtkWidget *button, gpointer pointer)
+{
+  GtkTreeIter iter;
+  GtkTreeView *treeview = (GtkTreeView *) pointer;
+  GtkTreeModel *model = gtk_tree_view_get_model (treeview);
+  GtkTreeSelection *selection = gtk_tree_view_get_selection (treeview);
+
+  if (!gtk_tree_selection_get_selected (selection, NULL, &iter))
+    return FALSE;
+
+  GtkTreePath *path = gtk_tree_model_get_path (model, &iter);
+  gint row = gtk_tree_path_get_indices (path)[0];
+  gtk_tree_path_free (path);
+
+  gint n_rows = gtk_tree_model_iter_n_children (model, NULL);
+  if (row < n_rows - 1)
+    {
+      GtkTreePath *target = gtk_tree_path_new_from_indices (row + 1, -1);
+      GtkTreeIter target_iter;
+      gtk_tree_model_get_iter (model, &target_iter, target);
+      gtk_list_store_move_after (GTK_LIST_STORE (model), &iter, &target_iter);
+      gtk_tree_path_free (target);
+      target = gtk_tree_path_new_from_indices (row + 1, -1);
+      gtk_tree_model_get_iter (model, &iter, target);
+      gtk_tree_selection_select_iter (selection, &iter);
+      gtk_tree_path_free (target);
+    }
+
+  return FALSE;
+}
+
+static gboolean
 Save_shortcuts (GtkWidget *button, gpointer pointer)
 {
   GtkTreeIter iter;
@@ -900,6 +963,18 @@ Config_macros (GtkAction *action, gpointer data)
 
   button = gtk_button_new_with_mnemonic ("Delete Shortcut");
   g_signal_connect (button, "clicked", G_CALLBACK (Delete_shortcut), (gpointer) treeview);
+  gtk_box_pack_start (GTK_BOX (hbox), button, TRUE, TRUE, 0);
+
+  hbox = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 4);
+  gtk_box_set_homogeneous (GTK_BOX (hbox), TRUE);
+  gtk_box_pack_start (GTK_BOX (vbox), hbox, FALSE, FALSE, 0);
+
+  button = gtk_button_new_with_mnemonic (_ ("Move _Up"));
+  g_signal_connect (button, "clicked", G_CALLBACK (Move_up), (gpointer) treeview);
+  gtk_box_pack_start (GTK_BOX (hbox), button, TRUE, TRUE, 0);
+
+  button = gtk_button_new_with_mnemonic (_ ("Move _Down"));
+  g_signal_connect (button, "clicked", G_CALLBACK (Move_down), (gpointer) treeview);
   gtk_box_pack_start (GTK_BOX (hbox), button, TRUE, TRUE, 0);
 
   separator = gtk_separator_new (GTK_ORIENTATION_HORIZONTAL);
