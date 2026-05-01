@@ -1,7 +1,36 @@
 
 # GTKTerm Fork
 
-This fork add pannel to call macro using button :
+1. Separate Macros File
+- Macros and lists are stored in a standalone .ini file, independent from the serial port config (.gtktermrc) 
+- Menu items "Load macros file..." and "Save macros file" open a file chooser dialog
+- The last used macros file path is saved in .gtktermrc and auto-loaded at startup
+                                                                                                              
+2. Value Lists (New "Lists" Tab)
+- In the Macros configuration window, a new "Lists" tab lets you define named lists of display/value pairs
+- Each list entry has a List name, Display text (shown in UI), and Value (sent to serial port)
+- Lists are referenced in macro actions using %#ListName syntax
+- Example: A list called "Commands" with entries like "Reset" → "AT+RESET", "Ping" → "AT+PING"
+                                                                                                              
+3. Macros with Format Arguments
+- Macro actions support printf-style format specifiers:
+  - %s – string
+  - %d / %i – signed integer
+  - %u / %o / %x – unsigned integer (decimal/octal/hex)
+  - %f – floating point
+  - %c – single character
+- Macros with arguments automatically generate buttons with input fields in the macro panel
+- Example action: "AT+SEND=%s\r\n" → user types the string, macro sends the full command
+                                                                                                              
+4. List Arguments in Macros
+- Using %#ListName in a macro action creates a combo box dropdown in the button UI
+- User selects from the predefined list values before sending
+- Can be combined with regular format args: "CMD=%#Commands=%d\r\n"
+                                                                                                              
+5. Reorder Buttons (Move Up/Down)
+- Both the Macros tab and Lists tab have "Move Up" / "Move Down" buttons
+- Lets you reorder macros and list entries to match your preferred workflow
+
 
 <p align="center">
     <img src="Capture1.png" width="60%"/>
