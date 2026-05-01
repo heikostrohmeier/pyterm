@@ -9,7 +9,9 @@ This fork add pannel to call macro using button :
 <p align="center">
     <img src="Capture2.png" width="60%"/>
 </p>
-
+<p align="center">
+    <img src="Capture3.png" width="60%"/>
+</p>
 # GTKTerm: A GTK+ Serial Port Terminal
 <img src="data/gtkterm_256x256.png" align="right" width="20%"/>
 
