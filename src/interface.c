@@ -408,6 +408,18 @@ save_arg_from_widget(GtkWidget *widget)
 	save_config_silent();
 }
 
+static void on_list_action_button_clicked(GtkWidget *widget, gpointer data)
+{
+	gint macro_index = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(widget), "macro-index"));
+	gchar *list_value = (gchar *)g_object_get_data(G_OBJECT(widget), "list-value");
+	if (list_value == NULL) return;
+
+	const gchar **args = g_new(const gchar *, 1);
+	args[0] = list_value;
+	send_macro_with_args(macro_index, args, 1);
+	g_free(args);
+}
+
 static void on_macro_arg_button_clicked(GtkWidget *widget, gpointer data)
 {
 	MacroArgData *d = (MacroArgData *)g_object_get_data(G_OBJECT(widget), "macro-data");
@@ -525,6 +537,39 @@ void rebuild_macro_buttons(void)
 			if (n_args > 0)
 			{
 				macro_arg_info_t *arg_infos = macro_get_arg_infos(macros[i].action, NULL);
+
+				gboolean is_two_button_list = FALSE;
+				if (n_args == 1 && arg_infos[0].type == 'l' && arg_infos[0].list_name != NULL)
+				{
+					gint list_idx = macro_list_find(arg_infos[0].list_name);
+					if (list_idx >= 0 && macro_list_entry_count(list_idx) == 2)
+						is_two_button_list = TRUE;
+				}
+
+				if (is_two_button_list)
+				{
+					gint list_idx = macro_list_find(arg_infos[0].list_name);
+					GtkWidget *hbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 2);
+					for (gint ei = 0; ei < 2; ei++)
+					{
+						gchar *label = g_strdup_printf("%s %s",
+						                             macros[i].label,
+						                             macro_list_entry_display(list_idx, ei));
+						GtkWidget *button = gtk_button_new_with_label(label);
+						g_free(label);
+						g_object_set_data(G_OBJECT(button), "macro-index", GINT_TO_POINTER(i));
+						g_object_set_data(G_OBJECT(button), "list-value",
+						                 (gpointer)macro_list_entry_value(list_idx, ei));
+						gtk_widget_set_tooltip_text(button, tooltip);
+						g_signal_connect(button, "clicked",
+						                 G_CALLBACK(on_list_action_button_clicked), NULL);
+						gtk_box_pack_start(GTK_BOX(hbox), button, FALSE, FALSE, 0);
+					}
+					gtk_box_pack_start(GTK_BOX(vbox), hbox, FALSE, FALSE, 2);
+					macro_arg_infos_free(arg_infos, n_args);
+					continue;
+				}
+
 				GtkWidget *hbox   = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 2);
 				GtkWidget *button = gtk_button_new_with_label(macros[i].label);
 
