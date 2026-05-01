@@ -542,9 +542,9 @@ gboolean terminal_button_press_callback(GtkWidget *widget,
 	if(event->type == GDK_BUTTON_PRESS &&
 	        event->button == 3 &&
 	        (event->state & gtk_accelerator_get_default_mod_mask()) == 0)
-	{
-		gtk_menu_popup(GTK_MENU(popup_menu), NULL, NULL, NULL, NULL,
-		               event->button, event->time);
+		{
+			gtk_menu_popup(GTK_MENU(popup_menu), NULL, NULL, NULL, NULL,
+		                   event->button, event->time);
 		return TRUE;
 	}
 

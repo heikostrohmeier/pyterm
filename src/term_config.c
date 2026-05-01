@@ -1200,12 +1200,10 @@ void delete_config(GtkDialog *Fenetre, gint id, GtkTreeSelection *Selection_List
 
 gint Load_configuration_from_file(gchar *config_name)
 {
-	int max, i, j, size;
+	int max, i;
 	g_free(active_config_name);
 	active_config_name = g_strdup(config_name);
 	gchar *string = NULL;
-	macro_t *macros = NULL;
-	cfgList *t;
 
 	max = cfgParse(g_file_get_path(config_file), cfg, CFG_INI);
 
@@ -1479,8 +1477,6 @@ void Hard_default_configuration(void)
 void Copy_configuration(int pos)
 {
 	gchar *string = NULL;
-	macro_t *macros = NULL;
-	gint size, i;
 
 	string = g_strdup(config.port);
 	cfgStoreValue(cfg, "port", string, CFG_INI, pos);
