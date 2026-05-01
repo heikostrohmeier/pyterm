@@ -76,8 +76,6 @@ gint *autoreconnect_enabled;
 gint *esc_clear_screen;
 gint *timestamp;
 gint *show_rxtx;
-cfgList **macro_list = NULL;
-cfgList **macro_lists_cfg = NULL;
 gchar **font;
 
 gint *block_cursor;
@@ -93,6 +91,7 @@ gfloat *background_red;
 gfloat *background_blue;
 gfloat *background_green;
 gfloat *background_alpha;
+gchar **macros_file;
 
 
 cfgStruct cfg[] =
@@ -114,8 +113,6 @@ cfgStruct cfg[] =
 	{"timestamp", CFG_BOOL, &timestamp},
 	{"show_rxtx", CFG_BOOL, &show_rxtx},
 	{"font", CFG_STRING, &font},
-	{"macros", CFG_STRING_LIST, &macro_list},
-	{"macro_lists", CFG_STRING_LIST, &macro_lists_cfg},
 	{"term_block_cursor", CFG_BOOL, &block_cursor},
 	{"term_rows", CFG_INT, &rows},
 	{"term_columns", CFG_INT, &columns},
@@ -129,6 +126,7 @@ cfgStruct cfg[] =
 	{"term_background_blue", CFG_FLOAT, &background_blue},
 	{"term_background_green", CFG_FLOAT, &background_green},
 	{"term_background_alpha", CFG_FLOAT, &background_alpha},
+	{"macros_file", CFG_STRING, &macros_file},
 	{NULL, CFG_END, NULL}
 };
 
@@ -861,6 +859,65 @@ void delete_config_callback(GtkAction *action, gpointer data)
 	Select_config(_("Delete configuration"), G_CALLBACK(delete_config));
 }
 
+void load_macros_file_callback(GtkAction *action, gpointer data)
+{
+	GtkWidget *dialog = gtk_file_chooser_dialog_new (_("Load macros file"),
+	                                                  NULL,
+	                                                  GTK_FILE_CHOOSER_ACTION_OPEN,
+	                                                  "_Cancel", GTK_RESPONSE_CANCEL,
+	                                                  "_Open", GTK_RESPONSE_ACCEPT,
+	                                                  NULL);
+
+	{
+		const gchar *cur = macros_file_get_path();
+		if (cur && g_file_test (cur, G_FILE_TEST_EXISTS))
+			gtk_file_chooser_set_current_folder (GTK_FILE_CHOOSER(dialog), g_path_get_dirname (cur));
+		else
+			gtk_file_chooser_set_current_folder (GTK_FILE_CHOOSER(dialog), g_get_user_config_dir ());
+	}
+
+	if (gtk_dialog_run (GTK_DIALOG(dialog)) == GTK_RESPONSE_ACCEPT)
+	{
+		gchar *path = gtk_file_chooser_get_filename (GTK_FILE_CHOOSER(dialog));
+		macros_file_load (path);
+		add_shortcuts ();
+		rebuild_macro_buttons ();
+		save_config_silent ();
+		g_free (path);
+	}
+
+	gtk_widget_destroy (dialog);
+}
+
+void save_macros_file_callback(GtkAction *action, gpointer data)
+{
+	GtkWidget *dialog = gtk_file_chooser_dialog_new (_("Save macros file"),
+	                                                  NULL,
+	                                                  GTK_FILE_CHOOSER_ACTION_SAVE,
+	                                                  "_Cancel", GTK_RESPONSE_CANCEL,
+	                                                  "_Save", GTK_RESPONSE_ACCEPT,
+	                                                  NULL);
+
+	{
+		const gchar *cur = macros_file_get_path();
+		if (cur && g_file_test (cur, G_FILE_TEST_EXISTS))
+			gtk_file_chooser_set_current_folder (GTK_FILE_CHOOSER(dialog), g_path_get_dirname (cur));
+		else
+			gtk_file_chooser_set_current_folder (GTK_FILE_CHOOSER(dialog), g_get_user_config_dir ());
+	}
+	gtk_file_chooser_set_current_name (GTK_FILE_CHOOSER(dialog), "gtkterm_macros.ini");
+
+	if (gtk_dialog_run (GTK_DIALOG(dialog)) == GTK_RESPONSE_ACCEPT)
+	{
+		gchar *path = gtk_file_chooser_get_filename (GTK_FILE_CHOOSER(dialog));
+		macros_file_save (path);
+		save_config_silent ();
+		g_free (path);
+	}
+
+	gtk_widget_destroy (dialog);
+}
+
 void Select_config(gchar *title, void *callback)
 {
 	GtkWidget *dialog;
@@ -1235,120 +1292,17 @@ gint Load_configuration_from_file(gchar *config_name)
 				else
 					config.show_rxtx = FALSE;
 
-				g_free(term_conf.font);
-				term_conf.font = g_strdup(font[i]);
+			g_free(term_conf.font);
+			term_conf.font = g_strdup(font[i]);
 
-				t = macro_list[i];
-				size = 0;
-				if(t != NULL)
-				{
-					size++;
-					while(t->next != NULL)
-					{
-						t = t->next;
-						size++;
-					}
-				}
+			/* Restaurer le chemin du fichier macros */
+			if (macros_file[i] != NULL)
+				macros_file_set_path(macros_file[i]);
 
-				if(size != 0)
-				{
-					t = macro_list[i];
-					macros = g_malloc(size * sizeof(macro_t));
-					if(macros == NULL)
-					{
-						perror("malloc");
-						return -1;
-					}
-
-					for(j = 0; j < size; j++)
-					{
-						// Parse format: label::shortcut::action
-
-						// Find "::" separator
-						gchar *sep1 = strstr(t->str, "::");
-                                                gchar *sep2 = strstr(sep1 + 2, "::");
-						if(sep1 == NULL || sep2 == NULL)
-						{
-						  // Invalid format, set default
-						  macros[j].label    = g_strdup("");
-						  macros[j].shortcut = g_strdup("None");
-						  macros[j].action   = g_strdup("");
-						  macros[j].tab      = g_strdup("");
-						  macros[j].args     = NULL;
-						  t = t->next;
-						  continue;
-						}
-
-						macros[j].label    = g_strndup(t->str, sep1 - t->str);
-						macros[j].shortcut = g_strndup(sep1 + 2, sep2 - (sep1 + 2));
-
-						gchar *sep3 = strstr(sep2 + 2, "::");
-						if(sep3 != NULL)
-						{
-							macros[j].action = g_strndup(sep2 + 2, sep3 - (sep2 + 2));
-							gchar *sep4 = strstr(sep3 + 2, "::");
-							if(sep4 != NULL)
-							{
-								macros[j].tab  = g_strndup(sep3 + 2, sep4 - (sep3 + 2));
-								const gchar *args_str = sep4 + 2;
-								macros[j].args = (*args_str != '\0') ? g_strsplit(args_str, "|", -1) : NULL;
-							}
-							else
-							{
-								macros[j].tab  = g_strdup(sep3 + 2);
-								macros[j].args = NULL;
-							}
-						}
-						else
-						{
-							macros[j].action = g_strdup(sep2 + 2);
-							macros[j].tab    = g_strdup("");
-							macros[j].args   = NULL;
-						}
-
-						t = t->next;
-					}
-				}
-
-				remove_shortcuts();
-				create_shortcuts(macros, size);
-                                rebuild_macro_buttons();
-				g_free(macros);
-
-				/* Chargement des listes de valeurs */
-				{
-					macro_lists_init();
-					cfgList *ml = macro_lists_cfg[i];
-					while (ml != NULL)
-					{
-						gchar *colon = strchr(ml->str, ':');
-						if (colon)
-						{
-							gchar *list_name = g_strndup(ml->str, colon - ml->str);
-							gchar *entries_str = colon + 1;
-							gchar **entries = g_strsplit(entries_str, "|", -1);
-							for (gint ei = 0; entries[ei] != NULL; ei++)
-							{
-								gchar *eq = strchr(entries[ei], '=');
-								if (eq)
-								{
-									gchar *display = g_strndup(entries[ei], eq - entries[ei]);
-									gchar *value = g_strdup(eq + 1);
-									macro_list_add(list_name, display, value);
-									g_free(display);
-									g_free(value);
-								}
-								else
-								{
-									macro_list_add(list_name, entries[ei], entries[ei]);
-								}
-							}
-							g_strfreev(entries);
-							g_free(list_name);
-						}
-						ml = ml->next;
-					}
-				}
+			/* Chargement des macros et listes depuis le fichier séparé */
+				macros_file_load (NULL);
+				add_shortcuts ();
+				rebuild_macro_buttons ();
 
 				if(block_cursor[i] != -1)
 					term_conf.block_cursor = (gboolean)block_cursor[i];
@@ -1649,42 +1603,6 @@ void Copy_configuration(int pos)
 	cfgStoreValue(cfg, "font", string, CFG_INI, pos);
 	g_free(string);
 
-	macros = get_shortcuts(&size);
-	for(i = 0; i < size; i++)
-	{
-		gchar *args_str = macros[i].args ? g_strjoinv("|", macros[i].args) : g_strdup("");
-		string = g_strdup_printf("%s::%s::%s::%s::%s",
-		                         macros[i].label    ? macros[i].label    : "",
-		                         macros[i].shortcut ? macros[i].shortcut : "",
-		                         macros[i].action   ? macros[i].action   : "",
-		                         macros[i].tab      ? macros[i].tab      : "",
-		                         args_str);
-		g_free(args_str);
-		cfgStoreValue(cfg, "macros", string, CFG_INI, pos);
-		g_free(string);
-	}
-
-	/* Sauvegarde des listes de valeurs */
-	{
-		gint n_lists = macro_list_count();
-		for (i = 0; i < n_lists; i++)
-		{
-			GString *list_str = g_string_new(macro_list_name(i));
-			g_string_append_c(list_str, ':');
-			gint n_entries = macro_list_entry_count(i);
-			for (gint ei = 0; ei < n_entries; ei++)
-			{
-				if (ei > 0)
-					g_string_append_c(list_str, '|');
-				g_string_append(list_str, macro_list_entry_display(i, ei));
-				g_string_append_c(list_str, '=');
-				g_string_append(list_str, macro_list_entry_value(i, ei));
-			}
-			cfgStoreValue(cfg, "macro_lists", list_str->str, CFG_INI, pos);
-			g_string_free(list_str, TRUE);
-		}
-	}
-
 	if(term_conf.block_cursor == FALSE)
 		string = g_strdup_printf("False");
 	else
@@ -1736,6 +1654,14 @@ void Copy_configuration(int pos)
 	string = g_strdup_printf("%f", term_conf.background_color.alpha);
 	cfgStoreValue(cfg, "term_background_alpha", string, CFG_INI, pos);
 	g_free(string);
+
+	const gchar *mfp = macros_file_get_path();
+	if (mfp)
+	{
+		string = g_strdup(mfp);
+		cfgStoreValue(cfg, "macros_file", string, CFG_INI, pos);
+		g_free(string);
+	}
 }
 
 

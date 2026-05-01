@@ -24,6 +24,8 @@ void select_config_callback(GtkAction *action, gpointer data);
 void save_config_callback(GtkAction *action, gpointer data);
 void save_config_silent(void);
 void delete_config_callback(GtkAction *action, gpointer data);
+void load_macros_file_callback(GtkAction *action, gpointer data);
+void save_macros_file_callback(GtkAction *action, gpointer data);
 void Verify_configuration(void);
 gint Load_configuration_from_file(gchar *);
 gint Check_configuration_file(void);

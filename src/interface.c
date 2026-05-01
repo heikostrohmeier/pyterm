@@ -195,6 +195,8 @@ const GtkActionEntry menu_entries[] =
 	{"ConfigPort", GTK_STOCK_PROPERTIES, N_("_Port"), "<shift><control>S", NULL, G_CALLBACK(Config_Port_Fenetre)},
 	{"ConfigTerminal", GTK_STOCK_PREFERENCES, N_("_Main window"), "", NULL, G_CALLBACK(Config_Terminal)},
 	{"Macros", NULL, N_("_Macros"), NULL, NULL, G_CALLBACK(Config_macros)},
+	{"LoadMacros", GTK_STOCK_OPEN, N_("_Load macros file..."), "", NULL, G_CALLBACK(load_macros_file_callback)},
+	{"SaveMacros", GTK_STOCK_SAVE, N_("_Save macros file"), "", NULL, G_CALLBACK(save_macros_file_callback)},
 	{"SelectConfig", GTK_STOCK_OPEN, N_("_Load configuration"), "", NULL, G_CALLBACK(select_config_callback)},
 	{"SaveConfig", GTK_STOCK_SAVE_AS, N_("_Save configuration"), "", NULL, G_CALLBACK(save_config_callback)},
 	{"DeleteConfig", GTK_STOCK_DELETE, N_("_Delete configuration"), "", NULL, G_CALLBACK(delete_config_callback)},
@@ -274,7 +276,9 @@ static const char *ui_description =
     "      <menuitem action='CRLFauto'/>"
     "      <menuitem action='EscClearScreen'/>"
     "      <menuitem action='Timestamp'/>"
-    "      <menuitem action='Macros'/>"
+     "      <menuitem action='Macros'/>"
+     "      <menuitem action='LoadMacros'/>"
+     "      <menuitem action='SaveMacros'/>"
     "      <separator/>"
     "      <menuitem action='SelectConfig'/>"
     "      <menuitem action='SaveConfig'/>"

@@ -76,5 +76,12 @@ void     send_macro_with_arg    (gint macro_index, const gchar *arg_str);
 void     send_macro_with_args   (gint macro_index, const gchar **args, gint n_args);
 void     macro_set_arg          (gint macro_index, gint arg_index, const gchar *value);
 
+/* --- Fichier macros séparé --- */
+void     macros_file_load (const gchar *path);
+void     macros_file_save (const gchar *path);
+const gchar *macros_file_get_default_path (void);
+void     macros_file_set_path (const gchar *path);
+const gchar *macros_file_get_path (void);
+
 #endif
 

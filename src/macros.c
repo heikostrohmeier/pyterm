@@ -1078,7 +1078,7 @@ Save_shortcuts (GtkWidget *button, gpointer pointer)
     save_lists_from_model (lists_model);
 
   rebuild_macro_buttons ();
-  save_config_silent ();
+  macros_file_save (NULL);
   return FALSE;
 }
 
@@ -1496,5 +1496,253 @@ Config_macros (GtkAction *action, gpointer data)
   gtk_window_set_default_size (GTK_WINDOW (window), 400, 500);
 
   gtk_widget_show_all (window);
+}
+
+/* --- Fichier macros séparé --- */
+
+static gchar *macros_file_path = NULL;
+
+const gchar *
+macros_file_get_default_path (void)
+{
+  return g_build_filename (g_get_user_config_dir (), "gtkterm_macros.ini", NULL);
+}
+
+void
+macros_file_set_path (const gchar *path)
+{
+  g_free (macros_file_path);
+  macros_file_path = g_strdup (path);
+}
+
+const gchar *
+macros_file_get_path (void)
+{
+  return macros_file_path;
+}
+
+static gchar *
+get_macros_file_path (void)
+{
+  if (macros_file_path)
+    return macros_file_path;
+  return (gchar *) macros_file_get_default_path ();
+}
+
+static void
+write_macros_to_file (const gchar *path, macro_t *m, gint size)
+{
+  GError *error = NULL;
+  GKeyFile *kf = g_key_file_new ();
+
+  for (gint i = 0; i < size; i++)
+    {
+      gchar *args_str = m[i].args ? g_strjoinv ("|", m[i].args) : g_strdup ("");
+      gchar *key = g_strdup_printf ("macro_%d", i);
+      gchar *val = g_strdup_printf ("%s::%s::%s::%s::%s",
+                                    m[i].label    ? m[i].label    : "",
+                                    m[i].shortcut ? m[i].shortcut : "",
+                                    m[i].action   ? m[i].action   : "",
+                                    m[i].tab      ? m[i].tab      : "",
+                                    args_str);
+      g_key_file_set_string (kf, "macros", key, val);
+      g_free (key);
+      g_free (val);
+      g_free (args_str);
+    }
+
+  gint n_lists = macro_list_count ();
+  for (gint li = 0; li < n_lists; li++)
+    {
+      GString *list_str = g_string_new (macro_list_name (li));
+      g_string_append_c (list_str, ':');
+      gint n_entries = macro_list_entry_count (li);
+      for (gint ei = 0; ei < n_entries; ei++)
+        {
+          if (ei > 0)
+            g_string_append_c (list_str, '|');
+          g_string_append (list_str, macro_list_entry_display (li, ei));
+          g_string_append_c (list_str, '=');
+          g_string_append (list_str, macro_list_entry_value (li, ei));
+        }
+      gchar *key = g_strdup_printf ("list_%d", li);
+      g_key_file_set_string (kf, "lists", key, list_str->str);
+      g_free (key);
+      g_string_free (list_str, TRUE);
+    }
+
+  gchar *data = g_key_file_to_data (kf, NULL, &error);
+  if (data)
+    {
+      g_file_set_contents (path, data, -1, &error);
+      g_free (data);
+    }
+
+  g_key_file_free (kf);
+
+  if (error)
+    {
+      g_printerr ("Error writing macros file: %s\n", error->message);
+      g_error_free (error);
+    }
+}
+
+void
+macros_file_save (const gchar *path)
+{
+  gint size = 0;
+  macro_t *m = get_shortcuts (&size);
+  gchar *save_path = path ? g_strdup (path) : g_strdup (get_macros_file_path ());
+
+  g_free (macros_file_path);
+  macros_file_path = g_strdup (save_path);
+
+  write_macros_to_file (save_path, m, size);
+  g_free (save_path);
+}
+
+void
+macros_file_load (const gchar *path)
+{
+  GError *error = NULL;
+  GKeyFile *kf = g_key_file_new ();
+  gchar *load_path = path ? g_strdup (path) : g_strdup (get_macros_file_path ());
+
+  if (!g_file_test (load_path, G_FILE_TEST_EXISTS))
+    {
+      g_free (load_path);
+      g_key_file_free (kf);
+      return;
+    }
+
+  if (!g_key_file_load_from_file (kf, load_path, G_KEY_FILE_NONE, &error))
+    {
+      g_printerr ("Error reading macros file: %s\n", error->message);
+      g_error_free (error);
+      g_free (load_path);
+      g_key_file_free (kf);
+      return;
+    }
+
+  g_free (macros_file_path);
+  macros_file_path = g_strdup (load_path);
+  g_free (load_path);
+
+  /* Charger les macros */
+  gchar **macro_keys = g_key_file_get_keys (kf, "macros", NULL, &error);
+  if (macro_keys)
+    {
+      gint count = g_strv_length (macro_keys);
+      macro_t *new_macros = g_malloc0 ((count + 1) * sizeof (macro_t));
+
+      for (gint i = 0; i < count; i++)
+        {
+          gchar *val = g_key_file_get_string (kf, "macros", macro_keys[i], NULL);
+          if (val)
+            {
+              gchar *sep1 = strstr (val, "::");
+              gchar *sep2 = sep1 ? strstr (sep1 + 2, "::") : NULL;
+
+              if (sep1 && sep2)
+                {
+                  new_macros[i].label = g_strndup (val, sep1 - val);
+                  new_macros[i].shortcut = g_strndup (sep1 + 2, sep2 - (sep1 + 2));
+
+                  gchar *sep3 = strstr (sep2 + 2, "::");
+                  if (sep3)
+                    {
+                      gchar *sep4 = strstr (sep3 + 2, "::");
+                      if (sep4)
+                        {
+                          new_macros[i].action = g_strndup (sep2 + 2, sep3 - (sep2 + 2));
+                          new_macros[i].tab = g_strndup (sep3 + 2, sep4 - (sep3 + 2));
+                          new_macros[i].args = g_strsplit (sep4 + 2, "|", -1);
+                        }
+                      else
+                        {
+                          new_macros[i].action = g_strdup (sep2 + 2);
+                          new_macros[i].tab = g_strdup (sep3 + 2);
+                          new_macros[i].args = NULL;
+                        }
+                    }
+                  else
+                    {
+                      new_macros[i].action = g_strdup (sep2 + 2);
+                      new_macros[i].tab = g_strdup ("");
+                      new_macros[i].args = NULL;
+                    }
+
+                  if (!new_macros[i].label) new_macros[i].label = g_strdup ("");
+                  if (!new_macros[i].shortcut) new_macros[i].shortcut = g_strdup ("None");
+                }
+              else
+                {
+                  new_macros[i].label = g_strdup ("");
+                  new_macros[i].shortcut = g_strdup ("None");
+                  new_macros[i].action = g_strdup ("");
+                  new_macros[i].tab = g_strdup ("");
+                  new_macros[i].args = NULL;
+                }
+
+              g_free (val);
+            }
+        }
+
+      new_macros[count].label = NULL;
+      new_macros[count].shortcut = NULL;
+      new_macros[count].action = NULL;
+      new_macros[count].tab = NULL;
+      new_macros[count].args = NULL;
+
+      remove_shortcuts ();
+      create_shortcuts (new_macros, count);
+
+      g_free (new_macros);
+    }
+
+  /* Charger les listes */
+  macro_lists_free ();
+  macro_lists_init ();
+
+  gchar **list_keys = g_key_file_get_keys (kf, "lists", NULL, &error);
+  if (list_keys)
+    {
+      for (gint i = 0; list_keys[i] != NULL; i++)
+        {
+          gchar *val = g_key_file_get_string (kf, "lists", list_keys[i], NULL);
+          if (val)
+            {
+              gchar *colon = strchr (val, ':');
+              if (colon)
+                {
+                  gchar *list_name = g_strndup (val, colon - val);
+                  gchar *entries_str = colon + 1;
+                  gchar **entries = g_strsplit (entries_str, "|", -1);
+                  for (gint ei = 0; entries[ei] != NULL; ei++)
+                    {
+                      gchar *eq = strchr (entries[ei], '=');
+                      if (eq)
+                        {
+                          gchar *display = g_strndup (entries[ei], eq - entries[ei]);
+                          gchar *value = g_strdup (eq + 1);
+                          macro_list_add (list_name, display, value);
+                          g_free (display);
+                          g_free (value);
+                        }
+                      else
+                        {
+                          macro_list_add (list_name, entries[ei], entries[ei]);
+                        }
+                    }
+                  g_strfreev (entries);
+                  g_free (list_name);
+                }
+              g_free (val);
+            }
+        }
+      g_strfreev (list_keys);
+    }
+
+  g_key_file_free (kf);
 }
 
