@@ -95,12 +95,34 @@ GtkWidget *searchBar;
 GtkWidget *scrolled_window;
 GtkWidget *Fenetre;
 GtkWidget *popup_menu;
-GtkUIManager *ui_manager;
 GtkAccelGroup *shortcuts;
-GtkActionGroup *action_group;
 GtkWidget *display = NULL;
 GtkWidget *macro_panel;
 GtkWidget *macro_notebook;
+
+/* GAction infrastructure (for state management: enable/disable, toggle, radio) */
+static GSimpleAction *action_local_echo;
+static GSimpleAction *action_autoreconnect;
+static GSimpleAction *action_crlf_auto;
+static GSimpleAction *action_esc_clear_screen;
+static GSimpleAction *action_timestamp;
+static GSimpleAction *action_view_index;
+static GSimpleAction *action_view_show_rxtx;
+static GSimpleAction *action_view_send_hex;
+static GSimpleAction *action_view_macro_panel;
+
+/* Radio actions */
+static GSimpleAction *action_view_ascii;
+static GSimpleAction *action_view_hex;
+static GSimpleAction *action_view_hex_chars;
+
+/* Menu item references for enable/disable control */
+static GtkWidget *menu_item_edit_copy;
+static GtkWidget *menu_item_edit_copy_popup;
+static GtkWidget *menu_item_log_to_file;
+static GtkWidget *menu_item_log_pause_resume;
+static GtkWidget *menu_item_log_stop;
+static GtkWidget *menu_item_log_clear;
 
 GtkWidget *Text;
 GtkTextBuffer *buffer;
@@ -127,31 +149,30 @@ void signals_open_port(GtkAction *action, gpointer data);
 void help_about_callback(GtkAction *action, gpointer data);
 gboolean Envoie_car(GtkWidget *, GdkEventKey *, gpointer);
 gboolean control_signals_read(void);
-void echo_toggled_callback(GtkAction *action, gpointer data);
-void Autoreconnect_toggled_callback(GtkAction *action, gpointer data);
-void CR_LF_auto_toggled_callback(GtkAction *action, gpointer data);
-void esc_clear_screen_toggled_callback(GtkAction *action, gpointer data);
-void timestamp_toggled_callback(GtkAction *action, gpointer data);
-void view_radio_callback(GtkAction *action, gpointer data);
-void view_hexadecimal_chars_radio_callback(GtkAction* action, gpointer data);
-void view_index_toggled_callback(GtkAction *action, gpointer data);
-void view_send_hex_toggled_callback(GtkAction *action, gpointer data);
+void echo_toggled_callback(GSimpleAction *action, GVariant *parameter, gpointer data);
+void Autoreconnect_toggled_callback(GSimpleAction *action, GVariant *parameter, gpointer data);
+void CR_LF_auto_toggled_callback(GSimpleAction *action, GVariant *parameter, gpointer data);
+void esc_clear_screen_toggled_callback(GSimpleAction *action, GVariant *parameter, gpointer data);
+void timestamp_toggled_callback(GSimpleAction *action, GVariant *parameter, gpointer data);
+void view_radio_callback(GtkWidget *widget, gpointer data);
+void view_hex_chars_radio_callback(GtkWidget *widget, gpointer data);
+void view_index_toggled_callback(GSimpleAction *action, GVariant *parameter, gpointer data);
+void view_send_hex_toggled_callback(GSimpleAction *action, GVariant *parameter, gpointer data);
 void initialize_hexadecimal_display(void);
 gboolean Send_Hexadecimal(GtkWidget *, GdkEventKey *, gpointer);
 gboolean pop_message(void);
-static gchar *translate_menu(const gchar *, gpointer);
 static void Got_Input(VteTerminal *, gchar *, guint, gpointer);
-void edit_copy_callback(GtkAction *action, gpointer data);
+void edit_copy_callback(GtkWidget *widget, gpointer data);
 void update_copy_sensivity(VteTerminal *terminal, gpointer data);
-void edit_paste_callback(GtkAction *action, gpointer data);
-void edit_find_callback(GtkAction *action);
-void edit_select_all_callback(GtkAction *action, gpointer data);
+void edit_paste_callback(GtkWidget *widget, gpointer data);
+void edit_find_callback(GtkWidget *widget, gpointer data);
+void edit_select_all_callback(GtkWidget *widget, gpointer data);
 
-void view_macro_panel_toggled_callback(GtkAction *action, gpointer data);
+void view_macro_panel_toggled_callback(GSimpleAction *action, GVariant *parameter, gpointer data);
 static void on_macro_button_clicked(GtkWidget *widget, gpointer data);
 static void create_macro_panel(void);
 void rebuild_macro_buttons(void);
-void show_rxtx_toggled_callback(GtkAction *action, gpointer data);
+void show_rxtx_toggled_callback(GSimpleAction *action, GVariant *parameter, gpointer data);
 void Set_show_rxtx(gboolean show);
 
 void set_saved_data(GtkWidget *widget, gboolean direction);
@@ -159,183 +180,19 @@ void update_hex_history(GtkWidget *widget);
 gboolean on_key_press(GtkWidget *widget, GdkEventKey *event, gpointer user_data);
 
 /* Menu */
-const GtkActionEntry menu_entries[] =
+static void create_actions_and_menu(void);
+
+void view_send_hex_toggled_callback(GSimpleAction *action, GVariant *parameter, gpointer data)
 {
-	/* Toplevel */
-	{"File", NULL, N_("_File")},
-	{"Edit", NULL, N_("_Edit")},
-	{"Log", NULL, N_("_Log")},
-	{"Configuration", NULL, N_("_Configuration")},
-	{"Signals", NULL, N_("Control _signals")},
-	{"View", NULL, N_("_View")},
-	{"ViewHexadecimalChars", NULL, N_("Hexadecimal _chars")},
-	{"Help", NULL, N_("_Help")},
-
-	/* File menu */
-	{"FileExit", GTK_STOCK_QUIT, NULL, "<shift><control>Q", NULL, gtk_main_quit},
-	{"ClearScreen", GTK_STOCK_CLEAR, N_("_Clear screen"), "<shift><control>L", NULL, G_CALLBACK(clear_buffer)},
-	{"ClearScrollback", GTK_STOCK_CLEAR, N_("_Clear scrollback"), "<shift><control>K", NULL, G_CALLBACK(clear_scrollback)},
-	{"SendFile", GTK_STOCK_JUMP_TO, N_("Send _RAW file"), "<shift><control>R", NULL, G_CALLBACK(send_raw_file)},
-	{"SaveFile", GTK_STOCK_SAVE_AS, N_("_Save RAW file"), "", NULL, G_CALLBACK(save_raw_file)},
-        {"SaveAsciiFile", GTK_STOCK_SAVE_AS, N_("Save _ASCII file"), "", NULL, G_CALLBACK(save_ascii_file)},
-
-	/* Edit menu */
-	{"EditCopy", GTK_STOCK_COPY, NULL, "<shift><control>C", NULL, G_CALLBACK(edit_copy_callback)},
-	{"EditPaste", GTK_STOCK_PASTE, NULL, "<shift><control>V", NULL, G_CALLBACK(edit_paste_callback)},
-	{"EditFind", GTK_STOCK_FIND, NULL, "<shift><control>F", NULL, G_CALLBACK(edit_find_callback)},
-	{"EditSelectAll", GTK_STOCK_SELECT_ALL, NULL, "<shift><control>A", NULL, G_CALLBACK(edit_select_all_callback)},
-
-	/* Log Menu */
-	{"LogToFile", GTK_STOCK_MEDIA_RECORD, N_("To file..."), "", NULL, G_CALLBACK(logging_start)},
-	{"LogPauseResume", GTK_STOCK_MEDIA_PAUSE, NULL, "", NULL, G_CALLBACK(logging_pause_resume)},
-	{"LogStop", GTK_STOCK_MEDIA_STOP, NULL, "", NULL, G_CALLBACK(logging_stop)},
-	{"LogClear", GTK_STOCK_CLEAR, NULL, "", NULL, G_CALLBACK(logging_clear)},
-
-	/* Confuguration Menu */
-	{"ConfigPort", GTK_STOCK_PROPERTIES, N_("_Port"), "<shift><control>S", NULL, G_CALLBACK(Config_Port_Fenetre)},
-	{"ConfigTerminal", GTK_STOCK_PREFERENCES, N_("_Main window"), "", NULL, G_CALLBACK(Config_Terminal)},
-	{"Macros", NULL, N_("_Macros"), NULL, NULL, G_CALLBACK(Config_macros)},
-	{"LoadMacros", GTK_STOCK_OPEN, N_("_Load macros file..."), "", NULL, G_CALLBACK(load_macros_file_callback)},
-	{"SaveMacros", GTK_STOCK_SAVE, N_("_Save macros file"), "", NULL, G_CALLBACK(save_macros_file_callback)},
-	{"SelectConfig", GTK_STOCK_OPEN, N_("_Load configuration"), "", NULL, G_CALLBACK(select_config_callback)},
-	{"SaveConfig", GTK_STOCK_SAVE_AS, N_("_Save configuration"), "", NULL, G_CALLBACK(save_config_callback)},
-	{"DeleteConfig", GTK_STOCK_DELETE, N_("_Delete configuration"), "", NULL, G_CALLBACK(delete_config_callback)},
-
-	/* Signals Menu */
-	{"SignalsSendBreak", NULL, N_("Send break"), "<shift><control>B", NULL, G_CALLBACK(signals_send_break_callback)},
-	{"SignalsOpenPort", GTK_STOCK_OPEN, N_("_Open Port"), "F5", NULL, G_CALLBACK(signals_open_port)},
-	{"SignalsClosePort", GTK_STOCK_CLOSE, N_("_Close Port"), "F6", NULL, G_CALLBACK(signals_close_port)},
-	{"SignalsDTR", NULL, N_("Toggle DTR"), "F7", NULL, G_CALLBACK(signals_toggle_DTR_callback)},
-	{"SignalsRTS", NULL, N_("Toggle RTS"), "F8", NULL, G_CALLBACK(signals_toggle_RTS_callback)},
-
-	/* About menu */
-	{"HelpAbout", GTK_STOCK_ABOUT, NULL, NULL, NULL, G_CALLBACK(help_about_callback)}
-};
-
-const GtkToggleActionEntry menu_toggle_entries[] =
-{
-	/* Configuration Menu */
-	{"LocalEcho", NULL, N_("Local _echo"), NULL, NULL, G_CALLBACK(echo_toggled_callback), FALSE},
-	{"Autoreconnect", NULL, N_("Autoreconnect"), NULL, NULL, G_CALLBACK(Autoreconnect_toggled_callback), FALSE},
-	{"CRLFauto", NULL, N_("_CR LF auto"), NULL, NULL, G_CALLBACK(CR_LF_auto_toggled_callback), FALSE},
-	{"EscClearScreen", NULL, N_("ESC clear scree_n"), NULL, NULL, G_CALLBACK(esc_clear_screen_toggled_callback), FALSE},
-	{"Timestamp", NULL, N_("Timestamp"), NULL, NULL, G_CALLBACK(timestamp_toggled_callback), FALSE},
-
-	/* View Menu */
-	{"ViewIndex", NULL, N_("Show _index"), NULL, NULL, G_CALLBACK(view_index_toggled_callback), FALSE},
-	{"ViewShowRxTx", NULL, N_("Show R_x/Tx"), NULL, NULL, G_CALLBACK(show_rxtx_toggled_callback), FALSE},
-	{"ViewSendHexData", NULL, N_("_Send hexadecimal data"), NULL, NULL, G_CALLBACK(view_send_hex_toggled_callback), FALSE},
-        {"ViewMacroPanel", NULL, N_("_Macro panel"), NULL, NULL, G_CALLBACK(view_macro_panel_toggled_callback), TRUE}
-};
-
-const GtkRadioActionEntry menu_view_radio_entries[] =
-{
-	{"ViewASCII", NULL, N_("_ASCII"), NULL, NULL, ASCII_VIEW},
-	{"ViewHexadecimal", NULL, N_("_Hexadecimal"), NULL, NULL, HEXADECIMAL_VIEW}
-};
-
-const GtkRadioActionEntry menu_hex_chars_length_radio_entries[] =
-{
-	{"ViewHex8", NULL, "_8", NULL, NULL, 8},
-	{"ViewHex10", NULL, "1_0", NULL, NULL, 10},
-	{"ViewHex16", NULL, "_16", NULL, NULL, 16},
-	{"ViewHex24", NULL, "_24", NULL, NULL, 24},
-	{"ViewHex32", NULL, "_32", NULL, NULL, 32}
-};
-
-static const char *ui_description =
-    "<ui>"
-    "  <menubar name='MenuBar'>"
-    "    <menu action='File'>"
-    "      <menuitem action='ClearScreen'/>"
-    "      <menuitem action='ClearScrollback'/>"
-    "      <menuitem action='SendFile'/>"
-    "      <menuitem action='SaveFile'/>"
-    "      <menuitem action='SaveAsciiFile'/>"
-    "      <separator/>"
-    "      <menuitem action='FileExit'/>"
-    "    </menu>"
-    "    <menu action='Edit'>"
-    "      <menuitem action='EditCopy'/>"
-    "      <menuitem action='EditPaste'/>"
-    "      <menuitem action='EditFind'/>"
-    "      <separator/>"
-    "      <menuitem action='EditSelectAll'/>"
-    "    </menu>"
-    "    <menu action='Log'>"
-    "      <menuitem action='LogToFile'/>"
-    "      <menuitem action='LogPauseResume'/>"
-    "      <menuitem action='LogStop'/>"
-    "      <menuitem action='LogClear'/>"
-    "    </menu>"
-    "    <menu action='Configuration'>"
-    "      <menuitem action='ConfigPort'/>"
-    "      <menuitem action='ConfigTerminal'/>"
-    "      <menuitem action='LocalEcho'/>"
-    "      <menuitem action='Autoreconnect'/>"
-    "      <menuitem action='CRLFauto'/>"
-    "      <menuitem action='EscClearScreen'/>"
-    "      <menuitem action='Timestamp'/>"
-     "      <menuitem action='Macros'/>"
-     "      <menuitem action='LoadMacros'/>"
-     "      <menuitem action='SaveMacros'/>"
-    "      <separator/>"
-    "      <menuitem action='SelectConfig'/>"
-    "      <menuitem action='SaveConfig'/>"
-    "      <menuitem action='DeleteConfig'/>"
-    "    </menu>"
-    "    <menu action='Signals'>"
-    "      <menuitem action='SignalsSendBreak'/>"
-    "      <menuitem action='SignalsOpenPort'/>"
-    "      <menuitem action='SignalsClosePort'/>"
-    "      <menuitem action='SignalsDTR'/>"
-    "      <menuitem action='SignalsRTS'/>"
-    "    </menu>"
-    "    <menu action='View'>"
-    "      <menuitem action='ViewASCII'/>"
-    "      <menuitem action='ViewHexadecimal'/>"
-    "      <menu action='ViewHexadecimalChars'>"
-    "        <menuitem action='ViewHex8'/>"
-    "        <menuitem action='ViewHex10'/>"
-    "        <menuitem action='ViewHex16'/>"
-    "        <menuitem action='ViewHex24'/>"
-    "        <menuitem action='ViewHex32'/>"
-    "      </menu>"
-    "      <menuitem action='ViewIndex'/>"
-    "      <menuitem action='ViewShowRxTx'/>"
-    "      <separator/>"
-    "      <menuitem action='ViewSendHexData'/>"
-    "      <menuitem action='ViewMacroPanel'/>"
-    "    </menu>"
-    "    <menu action='Help'>"
-    "      <menuitem action='HelpAbout'/>"
-    "    </menu>"
-    "  </menubar>"
-    "  <popup name='PopupMenu'>"
-    "    <menuitem action='EditCopy'/>"
-    "    <menuitem action='EditPaste'/>"
-    "    <menuitem action='EditFind'/>"
-    "    <separator/>"
-    "    <menuitem action='EditSelectAll'/>"
-    "  </popup>"
-    "</ui>";
-
-static gchar *translate_menu(const gchar *path, gpointer data)
-{
-	return _(path);
-}
-
-void view_send_hex_toggled_callback(GtkAction *action, gpointer data)
-{
-	if(gtk_toggle_action_get_active(GTK_TOGGLE_ACTION(action)))
+	if (g_variant_get_boolean(parameter))
 		gtk_widget_show(GTK_WIDGET(Hex_Box));
 	else
 		gtk_widget_hide(GTK_WIDGET(Hex_Box));
 }
 
-void view_macro_panel_toggled_callback(GtkAction *action, gpointer data)
+void view_macro_panel_toggled_callback(GSimpleAction *action, GVariant *parameter, gpointer data)
 {
-	gboolean visible = gtk_toggle_action_get_active(GTK_TOGGLE_ACTION(action));
+	gboolean visible = g_variant_get_boolean(parameter);
 
 	if (macro_panel != NULL)
 	{
@@ -343,47 +200,31 @@ void view_macro_panel_toggled_callback(GtkAction *action, gpointer data)
 	}
 }
 
-void view_index_toggled_callback(GtkAction *action, gpointer data)
+void view_index_toggled_callback(GSimpleAction *action, GVariant *parameter, gpointer data)
 {
-	show_index = gtk_toggle_action_get_active(GTK_TOGGLE_ACTION(action));
+	show_index = g_variant_get_boolean(parameter);
 	set_view(HEXADECIMAL_VIEW);
 }
 
-void view_hexadecimal_chars_radio_callback(GtkAction* action, gpointer data)
-{
-	gint current_value;
-	current_value = gtk_radio_action_get_current_value(GTK_RADIO_ACTION(action));
 
-	bytes_per_line = current_value;
-	set_view(HEXADECIMAL_VIEW);
-}
 
 void set_view(guint type)
 {
-	GtkAction *action;
-	GtkAction *show_index_action;
-	GtkAction *hex_chars_action;
-
-	show_index_action = gtk_action_group_get_action(action_group, "ViewIndex");
-	hex_chars_action = gtk_action_group_get_action(action_group, "ViewHexadecimalChars");
-
 	clear_display();
 	set_clear_func(clear_display);
 	switch(type)
 	{
 	case ASCII_VIEW:
-		action = gtk_action_group_get_action(action_group, "ViewASCII");
-		gtk_toggle_action_set_active(GTK_TOGGLE_ACTION(action), TRUE);
-		gtk_action_set_sensitive(show_index_action, FALSE);
-		gtk_action_set_sensitive(hex_chars_action, FALSE);
+		g_simple_action_set_state(action_view_ascii, g_variant_new_boolean(TRUE));
+		g_simple_action_set_enabled(action_view_index, FALSE);
+		g_simple_action_set_enabled(action_view_hex_chars, FALSE);
 		total_bytes = 0;
 		set_display_func(put_text);
 		break;
 	case HEXADECIMAL_VIEW:
-		action = gtk_action_group_get_action(action_group, "ViewHexadecimal");
-		gtk_toggle_action_set_active(GTK_TOGGLE_ACTION(action), TRUE);
-		gtk_action_set_sensitive(show_index_action, TRUE);
-		gtk_action_set_sensitive(hex_chars_action, TRUE);
+		g_simple_action_set_state(action_view_hex, g_variant_new_boolean(TRUE));
+		g_simple_action_set_enabled(action_view_index, TRUE);
+		g_simple_action_set_enabled(action_view_hex_chars, TRUE);
 		total_bytes = 0;
 		virt_col_pos = 0;
 		set_display_func(put_hexadecimal);
@@ -394,144 +235,103 @@ void set_view(guint type)
 	write_buffer();
 }
 
-void view_radio_callback(GtkAction *action, gpointer data)
+void view_radio_callback(GtkWidget *widget, gpointer data)
 {
-	gint current_value;
-	current_value = gtk_radio_action_get_current_value(GTK_RADIO_ACTION(action));
+	set_view(GPOINTER_TO_INT(data));
+}
 
-	set_view(current_value);
+void view_hex_chars_radio_callback(GtkWidget *widget, gpointer data)
+{
+	bytes_per_line = GPOINTER_TO_INT(data);
+	set_view(HEXADECIMAL_VIEW);
 }
 
 void Set_local_echo(gboolean echo)
 {
-	GtkAction *action;
-
 	echo_on = echo;
-
-	action = gtk_action_group_get_action(action_group, "LocalEcho");
-	if(action)
-		gtk_toggle_action_set_active(GTK_TOGGLE_ACTION(action), echo_on);
+	g_simple_action_set_state(action_local_echo, g_variant_new_boolean(echo_on));
 }
 
-void echo_toggled_callback(GtkAction *action, gpointer data)
+void echo_toggled_callback(GSimpleAction *action, GVariant *parameter, gpointer data)
 {
-	echo_on = gtk_toggle_action_get_active (GTK_TOGGLE_ACTION(action));
+	echo_on = g_variant_get_boolean(parameter);
 	configure_echo(echo_on);
 }
 
 void Set_crlfauto(gboolean crlfauto)
 {
-	GtkAction *action;
-
 	crlfauto_on = crlfauto;
-
-	action = gtk_action_group_get_action(action_group, "CRLFauto");
-	if(action)
-		gtk_toggle_action_set_active(GTK_TOGGLE_ACTION(action), crlfauto_on);
+	g_simple_action_set_state(action_crlf_auto, g_variant_new_boolean(crlfauto_on));
 }
 
 void Set_autoreconnect_enabled(gboolean autoreconnect_enabled)
 {
-	GtkAction *action;
-
 	autoreconnect_on = autoreconnect_enabled;
-
-	action = gtk_action_group_get_action(action_group, "Autoreconnect");
-	if(action)
-		gtk_toggle_action_set_active(GTK_TOGGLE_ACTION(action), autoreconnect_on);
+	g_simple_action_set_state(action_autoreconnect, g_variant_new_boolean(autoreconnect_on));
 }
 
-void Autoreconnect_toggled_callback(GtkAction *action, gpointer data)
+void Autoreconnect_toggled_callback(GSimpleAction *action, GVariant *parameter, gpointer data)
 {
-	autoreconnect_on = gtk_toggle_action_get_active (GTK_TOGGLE_ACTION(action));
+	autoreconnect_on = g_variant_get_boolean(parameter);
 	configure_autoreconnect_enable(autoreconnect_on);
 }
 
-void CR_LF_auto_toggled_callback(GtkAction *action, gpointer data)
+void CR_LF_auto_toggled_callback(GSimpleAction *action, GVariant *parameter, gpointer data)
 {
-	crlfauto_on = gtk_toggle_action_get_active (GTK_TOGGLE_ACTION(action));
+	crlfauto_on = g_variant_get_boolean(parameter);
 	configure_crlfauto(crlfauto_on);
 }
 
 void Set_esc_clear_screen(gboolean esc_clear_screen)
 {
-	GtkAction *action;
-
 	esc_clear_screen_on = esc_clear_screen;
-
-	action = gtk_action_group_get_action(action_group, "EscClearScreen");
-	if(action)
-		gtk_toggle_action_set_active(GTK_TOGGLE_ACTION(action), esc_clear_screen_on);
+	g_simple_action_set_state(action_esc_clear_screen, g_variant_new_boolean(esc_clear_screen_on));
 }
 
-void esc_clear_screen_toggled_callback(GtkAction *action, gpointer data)
+void esc_clear_screen_toggled_callback(GSimpleAction *action, GVariant *parameter, gpointer data)
 {
-	esc_clear_screen_on = gtk_toggle_action_get_active (GTK_TOGGLE_ACTION(action));
+	esc_clear_screen_on = g_variant_get_boolean(parameter);
 	configure_esc_clear_screen(esc_clear_screen_on);
 }
 
 void Set_timestamp(gboolean timestamp)
 {
-	GtkAction *action;
-
 	timestamp_on = timestamp;
-
-	action = gtk_action_group_get_action(action_group, "Timestamp");
-	if(action)
-		gtk_toggle_action_set_active(GTK_TOGGLE_ACTION(action), timestamp_on);
+	g_simple_action_set_state(action_timestamp, g_variant_new_boolean(timestamp_on));
 }
 
-void timestamp_toggled_callback(GtkAction *action, gpointer data)
+void timestamp_toggled_callback(GSimpleAction *action, GVariant *parameter, gpointer data)
 {
-	timestamp_on = gtk_toggle_action_get_active (GTK_TOGGLE_ACTION(action));
+	timestamp_on = g_variant_get_boolean(parameter);
 	config.timestamp = timestamp_on ? TRUE : FALSE;
 }
 
 void Set_show_rxtx(gboolean show)
 {
-	GtkAction *action;
 	show_rxtx_on = show;
-	action = gtk_action_group_get_action(action_group, "ViewShowRxTx");
-	if(action)
-		gtk_toggle_action_set_active(GTK_TOGGLE_ACTION(action), show_rxtx_on);
+	g_simple_action_set_state(action_view_show_rxtx, g_variant_new_boolean(show_rxtx_on));
 }
 
-void show_rxtx_toggled_callback(GtkAction *action, gpointer data)
+void show_rxtx_toggled_callback(GSimpleAction *action, GVariant *parameter, gpointer data)
 {
-	show_rxtx_on = gtk_toggle_action_get_active(GTK_TOGGLE_ACTION(action));
+	show_rxtx_on = g_variant_get_boolean(parameter);
 	config.show_rxtx = show_rxtx_on ? TRUE : FALSE;
 }
 
-void toggle_logging_pause_resume(gboolean currentlyLogging)
+	void toggle_logging_pause_resume(gboolean currentlyLogging)
 {
-	GtkAction *action;
-
-	action = gtk_action_group_get_action(action_group, "LogPauseResume");
-
 	if (currentlyLogging)
-	{
-		gtk_action_set_label(action, NULL);
-		gtk_action_set_stock_id(action, GTK_STOCK_MEDIA_PAUSE);
-	}
+		gtk_menu_item_set_label(GTK_MENU_ITEM(menu_item_log_pause_resume), _("Pause"));
 	else
-	{
-		gtk_action_set_label(action, _("Resume"));
-		gtk_action_set_stock_id(action, GTK_STOCK_MEDIA_PLAY);
-	}
+		gtk_menu_item_set_label(GTK_MENU_ITEM(menu_item_log_pause_resume), _("Resume"));
 }
 
 void toggle_logging_sensitivity(gboolean currentlyLogging)
 {
-	GtkAction *action;
-
-	action = gtk_action_group_get_action(action_group, "LogToFile");
-	gtk_action_set_sensitive(action, !currentlyLogging);
-	action = gtk_action_group_get_action(action_group, "LogPauseResume");
-	gtk_action_set_sensitive(action, currentlyLogging);
-	action = gtk_action_group_get_action(action_group, "LogStop");
-	gtk_action_set_sensitive(action, currentlyLogging);
-	action = gtk_action_group_get_action(action_group, "LogClear");
-	gtk_action_set_sensitive(action, currentlyLogging);
+	gtk_widget_set_sensitive(menu_item_log_to_file, !currentlyLogging);
+	gtk_widget_set_sensitive(menu_item_log_pause_resume, currentlyLogging);
+	gtk_widget_set_sensitive(menu_item_log_stop, currentlyLogging);
+	gtk_widget_set_sensitive(menu_item_log_clear, currentlyLogging);
 }
 
 gboolean terminal_button_press_callback(GtkWidget *widget,
@@ -543,8 +343,7 @@ gboolean terminal_button_press_callback(GtkWidget *widget,
 	        event->button == 3 &&
 	        (event->state & gtk_accelerator_get_default_mod_mask()) == 0)
 		{
-			gtk_menu_popup(GTK_MENU(popup_menu), NULL, NULL, NULL, NULL,
-		                   event->button, event->time);
+			gtk_menu_popup_at_pointer(GTK_MENU(popup_menu), (const GdkEvent *)event);
 		return TRUE;
 	}
 
@@ -553,8 +352,7 @@ gboolean terminal_button_press_callback(GtkWidget *widget,
 
 void terminal_popup_menu_callback(GtkWidget *widget, gpointer data)
 {
-	gtk_menu_popup(GTK_MENU(popup_menu), NULL, NULL, NULL, NULL,
-	               0, gtk_get_current_event_time());
+	gtk_menu_popup_at_pointer(GTK_MENU(popup_menu), NULL);
 }
 
 static void on_macro_button_clicked(GtkWidget *widget, gpointer data)
@@ -831,12 +629,367 @@ static void create_macro_panel(void)
 	rebuild_macro_buttons();
 }
 
+/* Helper: connect a menu item's activate signal to a callback */
+static void connect_menu_item_callback(GtkWidget *item, GCallback callback)
+{
+	g_signal_connect(item, "activate", callback, NULL);
+}
+
+/* Helper: connect a check menu item to a toggle action */
+static void check_activate_toggle(GtkWidget *item, GSimpleAction *action)
+{
+	gboolean current = gtk_check_menu_item_get_active(GTK_CHECK_MENU_ITEM(item));
+	g_action_change_state(G_ACTION(action), g_variant_new_boolean(current));
+}
+
+static void connect_check_to_toggle_action(GtkCheckMenuItem *item, GSimpleAction *action)
+{
+	g_signal_connect(item, "activate", G_CALLBACK(check_activate_toggle), action);
+}
+
+/* Helper: build a menu from a submenu and return it */
+static GtkWidget *build_submenu(GtkWidget *menu_shell, const char *title, GCallback populate_cb)
+{
+	GtkWidget *menu_item = gtk_menu_item_new_with_mnemonic(title);
+	GtkWidget *menu = gtk_menu_new();
+	gtk_menu_item_set_submenu(GTK_MENU_ITEM(menu_item), menu);
+	gtk_menu_shell_append(GTK_MENU_SHELL(menu_shell), menu_item);
+	((void(*)(GtkWidget *))populate_cb)(menu);
+	return menu;
+}
+
+static void populate_file_menu(GtkWidget *menu)
+{
+	GtkWidget *item;
+	item = gtk_menu_item_new_with_mnemonic(_("Clear screen"));
+	connect_menu_item_callback(item, G_CALLBACK(clear_buffer));
+	gtk_menu_shell_append(GTK_MENU_SHELL(menu), item);
+
+	item = gtk_menu_item_new_with_mnemonic(_("Clear scrollback"));
+	connect_menu_item_callback(item, G_CALLBACK(clear_scrollback));
+	gtk_menu_shell_append(GTK_MENU_SHELL(menu), item);
+
+	item = gtk_menu_item_new_with_mnemonic(_("Send RAW file"));
+	connect_menu_item_callback(item, G_CALLBACK(send_raw_file));
+	gtk_menu_shell_append(GTK_MENU_SHELL(menu), item);
+
+	item = gtk_menu_item_new_with_mnemonic(_("Save RAW file"));
+	connect_menu_item_callback(item, G_CALLBACK(save_raw_file));
+	gtk_menu_shell_append(GTK_MENU_SHELL(menu), item);
+
+	item = gtk_menu_item_new_with_mnemonic(_("Save ASCII file"));
+	connect_menu_item_callback(item, G_CALLBACK(save_ascii_file));
+	gtk_menu_shell_append(GTK_MENU_SHELL(menu), item);
+
+	gtk_menu_shell_append(GTK_MENU_SHELL(menu), gtk_separator_menu_item_new());
+
+	item = gtk_menu_item_new_with_mnemonic(_("Quit"));
+	connect_menu_item_callback(item, G_CALLBACK(gtk_main_quit));
+	gtk_menu_shell_append(GTK_MENU_SHELL(menu), item);
+}
+
+static void populate_edit_menu(GtkWidget *menu)
+{
+	GtkWidget *item;
+	item = gtk_menu_item_new_with_mnemonic(_("Copy"));
+	menu_item_edit_copy = item;
+	connect_menu_item_callback(item, G_CALLBACK(edit_copy_callback));
+	gtk_menu_shell_append(GTK_MENU_SHELL(menu), item);
+
+	item = gtk_menu_item_new_with_mnemonic(_("Paste"));
+	connect_menu_item_callback(item, G_CALLBACK(edit_paste_callback));
+	gtk_menu_shell_append(GTK_MENU_SHELL(menu), item);
+
+	item = gtk_menu_item_new_with_mnemonic(_("Find"));
+	connect_menu_item_callback(item, G_CALLBACK(edit_find_callback));
+	gtk_menu_shell_append(GTK_MENU_SHELL(menu), item);
+
+	gtk_menu_shell_append(GTK_MENU_SHELL(menu), gtk_separator_menu_item_new());
+
+	item = gtk_menu_item_new_with_mnemonic(_("Select All"));
+	connect_menu_item_callback(item, G_CALLBACK(edit_select_all_callback));
+	gtk_menu_shell_append(GTK_MENU_SHELL(menu), item);
+}
+
+static void populate_log_menu(GtkWidget *menu)
+{
+	GtkWidget *item;
+	item = gtk_menu_item_new_with_mnemonic(_("To file..."));
+	menu_item_log_to_file = item;
+	connect_menu_item_callback(item, G_CALLBACK(logging_start));
+	gtk_menu_shell_append(GTK_MENU_SHELL(menu), item);
+
+	item = gtk_menu_item_new_with_mnemonic(_("Pause/Resume"));
+	menu_item_log_pause_resume = item;
+	connect_menu_item_callback(item, G_CALLBACK(logging_pause_resume));
+	gtk_menu_shell_append(GTK_MENU_SHELL(menu), item);
+
+	item = gtk_menu_item_new_with_mnemonic(_("Stop"));
+	menu_item_log_stop = item;
+	connect_menu_item_callback(item, G_CALLBACK(logging_stop));
+	gtk_menu_shell_append(GTK_MENU_SHELL(menu), item);
+
+	item = gtk_menu_item_new_with_mnemonic(_("Clear"));
+	menu_item_log_clear = item;
+	connect_menu_item_callback(item, G_CALLBACK(logging_clear));
+	gtk_menu_shell_append(GTK_MENU_SHELL(menu), item);
+}
+
+static void populate_config_menu(GtkWidget *menu)
+{
+	GtkWidget *item;
+	item = gtk_menu_item_new_with_mnemonic(_("Port"));
+	connect_menu_item_callback(item, G_CALLBACK(Config_Port_Fenetre));
+	gtk_menu_shell_append(GTK_MENU_SHELL(menu), item);
+
+	item = gtk_menu_item_new_with_mnemonic(_("Main window"));
+	connect_menu_item_callback(item, G_CALLBACK(Config_Terminal));
+	gtk_menu_shell_append(GTK_MENU_SHELL(menu), item);
+
+	item = gtk_check_menu_item_new_with_mnemonic(_("Local echo"));
+	connect_check_to_toggle_action(GTK_CHECK_MENU_ITEM(item), action_local_echo);
+	gtk_menu_shell_append(GTK_MENU_SHELL(menu), item);
+
+	item = gtk_check_menu_item_new_with_mnemonic(_("Autoreconnect"));
+	connect_check_to_toggle_action(GTK_CHECK_MENU_ITEM(item), action_autoreconnect);
+	gtk_menu_shell_append(GTK_MENU_SHELL(menu), item);
+
+	item = gtk_check_menu_item_new_with_mnemonic(_("CR LF auto"));
+	connect_check_to_toggle_action(GTK_CHECK_MENU_ITEM(item), action_crlf_auto);
+	gtk_menu_shell_append(GTK_MENU_SHELL(menu), item);
+
+	item = gtk_check_menu_item_new_with_mnemonic(_("ESC clear screen"));
+	connect_check_to_toggle_action(GTK_CHECK_MENU_ITEM(item), action_esc_clear_screen);
+	gtk_menu_shell_append(GTK_MENU_SHELL(menu), item);
+
+	item = gtk_check_menu_item_new_with_mnemonic(_("Timestamp"));
+	connect_check_to_toggle_action(GTK_CHECK_MENU_ITEM(item), action_timestamp);
+	gtk_menu_shell_append(GTK_MENU_SHELL(menu), item);
+
+	item = gtk_menu_item_new_with_mnemonic(_("Macros"));
+	connect_menu_item_callback(item, G_CALLBACK(Config_macros));
+	gtk_menu_shell_append(GTK_MENU_SHELL(menu), item);
+
+	item = gtk_menu_item_new_with_mnemonic(_("Load macros file..."));
+	connect_menu_item_callback(item, G_CALLBACK(load_macros_file_callback));
+	gtk_menu_shell_append(GTK_MENU_SHELL(menu), item);
+
+	item = gtk_menu_item_new_with_mnemonic(_("Save macros file"));
+	connect_menu_item_callback(item, G_CALLBACK(save_macros_file_callback));
+	gtk_menu_shell_append(GTK_MENU_SHELL(menu), item);
+
+	gtk_menu_shell_append(GTK_MENU_SHELL(menu), gtk_separator_menu_item_new());
+
+	item = gtk_menu_item_new_with_mnemonic(_("Load configuration"));
+	connect_menu_item_callback(item, G_CALLBACK(select_config_callback));
+	gtk_menu_shell_append(GTK_MENU_SHELL(menu), item);
+
+	item = gtk_menu_item_new_with_mnemonic(_("Save configuration"));
+	connect_menu_item_callback(item, G_CALLBACK(save_config_callback));
+	gtk_menu_shell_append(GTK_MENU_SHELL(menu), item);
+
+	item = gtk_menu_item_new_with_mnemonic(_("Delete configuration"));
+	connect_menu_item_callback(item, G_CALLBACK(delete_config_callback));
+	gtk_menu_shell_append(GTK_MENU_SHELL(menu), item);
+}
+
+static void populate_signals_menu(GtkWidget *menu)
+{
+	GtkWidget *item;
+	item = gtk_menu_item_new_with_mnemonic(_("Send break"));
+	connect_menu_item_callback(item, G_CALLBACK(signals_send_break_callback));
+	gtk_menu_shell_append(GTK_MENU_SHELL(menu), item);
+
+	item = gtk_menu_item_new_with_mnemonic(_("Open Port"));
+	connect_menu_item_callback(item, G_CALLBACK(signals_open_port));
+	gtk_menu_shell_append(GTK_MENU_SHELL(menu), item);
+
+	item = gtk_menu_item_new_with_mnemonic(_("Close Port"));
+	connect_menu_item_callback(item, G_CALLBACK(signals_close_port));
+	gtk_menu_shell_append(GTK_MENU_SHELL(menu), item);
+
+	item = gtk_menu_item_new_with_mnemonic(_("Toggle DTR"));
+	connect_menu_item_callback(item, G_CALLBACK(signals_toggle_DTR_callback));
+	gtk_menu_shell_append(GTK_MENU_SHELL(menu), item);
+
+	item = gtk_menu_item_new_with_mnemonic(_("Toggle RTS"));
+	connect_menu_item_callback(item, G_CALLBACK(signals_toggle_RTS_callback));
+	gtk_menu_shell_append(GTK_MENU_SHELL(menu), item);
+}
+
+static void populate_view_menu(GtkWidget *menu)
+{
+	GtkWidget *item;
+	GSList *radio_group = NULL;
+
+	/* ASCII/Hex radio */
+	item = gtk_radio_menu_item_new_with_mnemonic(NULL, _("ASCII"));
+	radio_group = g_slist_prepend(radio_group, item);
+	g_signal_connect(item, "activate", G_CALLBACK(view_radio_callback), GINT_TO_POINTER(ASCII_VIEW));
+	gtk_menu_shell_append(GTK_MENU_SHELL(menu), item);
+
+	item = gtk_radio_menu_item_new_with_mnemonic(radio_group, _("Hexadecimal"));
+	radio_group = g_slist_prepend(radio_group, item);
+	g_signal_connect(item, "activate", G_CALLBACK(view_radio_callback), GINT_TO_POINTER(HEXADECIMAL_VIEW));
+	gtk_menu_shell_append(GTK_MENU_SHELL(menu), item);
+	g_slist_free(radio_group);
+
+	/* Hex chars submenu */
+	GtkWidget *hex_submenu = gtk_menu_new();
+	GtkWidget *hex_menu_item = gtk_menu_item_new_with_mnemonic(_("Hexadecimal chars"));
+	gtk_menu_item_set_submenu(GTK_MENU_ITEM(hex_menu_item), hex_submenu);
+	gtk_menu_shell_append(GTK_MENU_SHELL(menu), hex_menu_item);
+
+	GSList *hex_radio_group = NULL;
+	item = gtk_radio_menu_item_new_with_mnemonic(NULL, "_8");
+	hex_radio_group = g_slist_prepend(hex_radio_group, item);
+	g_signal_connect(item, "activate", G_CALLBACK(view_hex_chars_radio_callback), GINT_TO_POINTER(8));
+	gtk_menu_shell_append(GTK_MENU_SHELL(hex_submenu), item);
+
+	item = gtk_radio_menu_item_new_with_mnemonic(hex_radio_group, "1_0");
+	hex_radio_group = g_slist_prepend(hex_radio_group, item);
+	g_signal_connect(item, "activate", G_CALLBACK(view_hex_chars_radio_callback), GINT_TO_POINTER(10));
+	gtk_menu_shell_append(GTK_MENU_SHELL(hex_submenu), item);
+
+	item = gtk_radio_menu_item_new_with_mnemonic(hex_radio_group, "_16");
+	hex_radio_group = g_slist_prepend(hex_radio_group, item);
+	g_signal_connect(item, "activate", G_CALLBACK(view_hex_chars_radio_callback), GINT_TO_POINTER(16));
+	gtk_menu_shell_append(GTK_MENU_SHELL(hex_submenu), item);
+
+	item = gtk_radio_menu_item_new_with_mnemonic(hex_radio_group, "_24");
+	hex_radio_group = g_slist_prepend(hex_radio_group, item);
+	g_signal_connect(item, "activate", G_CALLBACK(view_hex_chars_radio_callback), GINT_TO_POINTER(24));
+	gtk_menu_shell_append(GTK_MENU_SHELL(hex_submenu), item);
+
+	item = gtk_radio_menu_item_new_with_mnemonic(hex_radio_group, "_32");
+	hex_radio_group = g_slist_prepend(hex_radio_group, item);
+	g_signal_connect(item, "activate", G_CALLBACK(view_hex_chars_radio_callback), GINT_TO_POINTER(32));
+	gtk_menu_shell_append(GTK_MENU_SHELL(hex_submenu), item);
+	g_slist_free(hex_radio_group);
+
+	/* Toggle items */
+	item = gtk_check_menu_item_new_with_mnemonic(_("Show index"));
+	connect_check_to_toggle_action(GTK_CHECK_MENU_ITEM(item), action_view_index);
+	gtk_menu_shell_append(GTK_MENU_SHELL(menu), item);
+
+	item = gtk_check_menu_item_new_with_mnemonic(_("Show Rx/Tx"));
+	connect_check_to_toggle_action(GTK_CHECK_MENU_ITEM(item), action_view_show_rxtx);
+	gtk_menu_shell_append(GTK_MENU_SHELL(menu), item);
+
+	gtk_menu_shell_append(GTK_MENU_SHELL(menu), gtk_separator_menu_item_new());
+
+	item = gtk_check_menu_item_new_with_mnemonic(_("Send hexadecimal data"));
+	connect_check_to_toggle_action(GTK_CHECK_MENU_ITEM(item), action_view_send_hex);
+	gtk_menu_shell_append(GTK_MENU_SHELL(menu), item);
+
+	item = gtk_check_menu_item_new_with_mnemonic(_("Macro panel"));
+	connect_check_to_toggle_action(GTK_CHECK_MENU_ITEM(item), action_view_macro_panel);
+	gtk_check_menu_item_set_active(GTK_CHECK_MENU_ITEM(item), TRUE);
+	gtk_menu_shell_append(GTK_MENU_SHELL(menu), item);
+}
+
+static void populate_help_menu(GtkWidget *menu)
+{
+	GtkWidget *item;
+	item = gtk_menu_item_new_with_mnemonic(_("About"));
+	connect_menu_item_callback(item, G_CALLBACK(help_about_callback));
+	gtk_menu_shell_append(GTK_MENU_SHELL(menu), item);
+}
+
+static void populate_popup_menu(GtkWidget *menu)
+{
+	GtkWidget *item;
+	item = gtk_menu_item_new_with_mnemonic(_("Copy"));
+	menu_item_edit_copy_popup = item;
+	connect_menu_item_callback(item, G_CALLBACK(edit_copy_callback));
+	gtk_menu_shell_append(GTK_MENU_SHELL(menu), item);
+
+	item = gtk_menu_item_new_with_mnemonic(_("Paste"));
+	connect_menu_item_callback(item, G_CALLBACK(edit_paste_callback));
+	gtk_menu_shell_append(GTK_MENU_SHELL(menu), item);
+
+	item = gtk_menu_item_new_with_mnemonic(_("Find"));
+	connect_menu_item_callback(item, G_CALLBACK(edit_find_callback));
+	gtk_menu_shell_append(GTK_MENU_SHELL(menu), item);
+
+	gtk_menu_shell_append(GTK_MENU_SHELL(menu), gtk_separator_menu_item_new());
+
+	item = gtk_menu_item_new_with_mnemonic(_("Select All"));
+	connect_menu_item_callback(item, G_CALLBACK(edit_select_all_callback));
+	gtk_menu_shell_append(GTK_MENU_SHELL(menu), item);
+}
+
+static void create_actions_and_menu(void)
+{
+	/* Create toggle actions (stateful boolean) */
+	action_local_echo = g_simple_action_new_stateful("local-echo", G_VARIANT_TYPE_BOOLEAN, g_variant_new_boolean(FALSE));
+	g_object_ref_sink(G_OBJECT(action_local_echo));
+	g_signal_connect(action_local_echo, "change-state", G_CALLBACK(echo_toggled_callback), NULL);
+
+	action_autoreconnect = g_simple_action_new_stateful("autoreconnect", G_VARIANT_TYPE_BOOLEAN, g_variant_new_boolean(FALSE));
+	g_object_ref_sink(G_OBJECT(action_autoreconnect));
+	g_signal_connect(action_autoreconnect, "change-state", G_CALLBACK(Autoreconnect_toggled_callback), NULL);
+
+	action_crlf_auto = g_simple_action_new_stateful("crlf-auto", G_VARIANT_TYPE_BOOLEAN, g_variant_new_boolean(FALSE));
+	g_object_ref_sink(G_OBJECT(action_crlf_auto));
+	g_signal_connect(action_crlf_auto, "change-state", G_CALLBACK(CR_LF_auto_toggled_callback), NULL);
+
+	action_esc_clear_screen = g_simple_action_new_stateful("esc-clear-screen", G_VARIANT_TYPE_BOOLEAN, g_variant_new_boolean(FALSE));
+	g_object_ref_sink(G_OBJECT(action_esc_clear_screen));
+	g_signal_connect(action_esc_clear_screen, "change-state", G_CALLBACK(esc_clear_screen_toggled_callback), NULL);
+
+	action_timestamp = g_simple_action_new_stateful("timestamp", G_VARIANT_TYPE_BOOLEAN, g_variant_new_boolean(FALSE));
+	g_object_ref_sink(G_OBJECT(action_timestamp));
+	g_signal_connect(action_timestamp, "change-state", G_CALLBACK(timestamp_toggled_callback), NULL);
+
+	action_view_index = g_simple_action_new_stateful("view-index", G_VARIANT_TYPE_BOOLEAN, g_variant_new_boolean(FALSE));
+	g_object_ref_sink(G_OBJECT(action_view_index));
+	g_signal_connect(action_view_index, "change-state", G_CALLBACK(view_index_toggled_callback), NULL);
+
+	action_view_show_rxtx = g_simple_action_new_stateful("view-show-rxtx", G_VARIANT_TYPE_BOOLEAN, g_variant_new_boolean(FALSE));
+	g_object_ref_sink(G_OBJECT(action_view_show_rxtx));
+	g_signal_connect(action_view_show_rxtx, "change-state", G_CALLBACK(show_rxtx_toggled_callback), NULL);
+
+	action_view_send_hex = g_simple_action_new_stateful("view-send-hex", G_VARIANT_TYPE_BOOLEAN, g_variant_new_boolean(FALSE));
+	g_object_ref_sink(G_OBJECT(action_view_send_hex));
+	g_signal_connect(action_view_send_hex, "change-state", G_CALLBACK(view_send_hex_toggled_callback), NULL);
+
+	action_view_macro_panel = g_simple_action_new_stateful("view-macro-panel", G_VARIANT_TYPE_BOOLEAN, g_variant_new_boolean(TRUE));
+	g_object_ref_sink(G_OBJECT(action_view_macro_panel));
+	g_signal_connect(action_view_macro_panel, "change-state", G_CALLBACK(view_macro_panel_toggled_callback), NULL);
+
+	/* Radio actions */
+	action_view_ascii = g_simple_action_new_stateful("view-ascii", G_VARIANT_TYPE_BOOLEAN, g_variant_new_boolean(TRUE));
+	g_object_ref_sink(G_OBJECT(action_view_ascii));
+
+	action_view_hex = g_simple_action_new_stateful("view-hex", G_VARIANT_TYPE_BOOLEAN, g_variant_new_boolean(FALSE));
+	g_object_ref_sink(G_OBJECT(action_view_hex));
+
+	action_view_hex_chars = g_simple_action_new_stateful("view-hex-chars", G_VARIANT_TYPE_BOOLEAN, g_variant_new_boolean(FALSE));
+	g_object_ref_sink(G_OBJECT(action_view_hex_chars));
+
+	/* Build menubar */
+	GtkWidget *menubar = gtk_menu_bar_new();
+	build_submenu(menubar, _("File"), (GCallback)populate_file_menu);
+	build_submenu(menubar, _("Edit"), (GCallback)populate_edit_menu);
+	build_submenu(menubar, _("Log"), (GCallback)populate_log_menu);
+	build_submenu(menubar, _("Configuration"), (GCallback)populate_config_menu);
+	build_submenu(menubar, _("Control signals"), (GCallback)populate_signals_menu);
+	build_submenu(menubar, _("View"), (GCallback)populate_view_menu);
+	build_submenu(menubar, _("Help"), (GCallback)populate_help_menu);
+
+	/* Store menubar for packing */
+	g_object_set_data(G_OBJECT(Fenetre), "menubar", menubar);
+
+	/* Build popup menu */
+	popup_menu = gtk_menu_new();
+	populate_popup_menu(popup_menu);
+}
+
 void create_main_window(void)
 {
-	GtkWidget *menu, *main_vbox, *label;
+	GtkWidget *main_vbox, *label;
 	GtkWidget *hex_send_entry;
-	GtkAccelGroup *accel_group;
-	GError *error;
 
 	Fenetre = gtk_window_new(GTK_WINDOW_TOPLEVEL);
 
@@ -851,44 +1004,11 @@ void create_main_window(void)
 	main_vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
 	gtk_container_add(GTK_CONTAINER(Fenetre), main_vbox);
 
-	/* Create the UIManager */
-	ui_manager = gtk_ui_manager_new();
+	/* Create GActions and build menu */
+	create_actions_and_menu();
 
-	accel_group = gtk_ui_manager_get_accel_group (ui_manager);
-	gtk_window_add_accel_group (GTK_WINDOW (Fenetre), accel_group);
-
-	/* Create the actions */
-	action_group = gtk_action_group_new("MenuActions");
-	gtk_action_group_set_translate_func(action_group, translate_menu, NULL, NULL);
-
-	gtk_action_group_add_actions(action_group, menu_entries,
-	                             G_N_ELEMENTS (menu_entries),
-	                             Fenetre);
-	gtk_action_group_add_toggle_actions(action_group, menu_toggle_entries,
-	                                    G_N_ELEMENTS (menu_toggle_entries),
-	                                    Fenetre);
-	gtk_action_group_add_radio_actions(action_group, menu_view_radio_entries,
-	                                   G_N_ELEMENTS (menu_view_radio_entries),
-	                                   -1, G_CALLBACK(view_radio_callback),
-	                                   Fenetre);
-	gtk_action_group_add_radio_actions(action_group, menu_hex_chars_length_radio_entries,
-	                                   G_N_ELEMENTS (menu_hex_chars_length_radio_entries),
-	                                   16, G_CALLBACK(view_hexadecimal_chars_radio_callback),
-	                                   Fenetre);
-
-	gtk_ui_manager_insert_action_group (ui_manager, action_group, 0);
-
-	/* Load the UI */
-	error = NULL;
-	if(!gtk_ui_manager_add_ui_from_string(ui_manager, ui_description, -1, &error))
-	{
-		g_message ("building menus failed: %s", error->message);
-		g_error_free (error);
-		exit (EXIT_FAILURE);
-	}
-
-	menu = gtk_ui_manager_get_widget (ui_manager, "/MenuBar");
-	gtk_box_pack_start(GTK_BOX(main_vbox), menu, FALSE, TRUE, 0);
+	GtkWidget *menubar = GTK_WIDGET(g_object_get_data(G_OBJECT(Fenetre), "menubar"));
+	gtk_box_pack_start(GTK_BOX(main_vbox), menubar, FALSE, TRUE, 0);
 
 	/* create vte window */
 	display = vte_terminal_new();
@@ -939,8 +1059,6 @@ void create_main_window(void)
 	g_signal_connect(G_OBJECT(display), "selection-changed",
 	                 G_CALLBACK(update_copy_sensivity), NULL);
 	update_copy_sensivity(VTE_TERMINAL(display), NULL);
-
-	popup_menu = gtk_ui_manager_get_widget(ui_manager, "/PopupMenu");
 
 	/* set up logging buttons availability */
 	toggle_logging_pause_resume(FALSE);
@@ -1322,28 +1440,39 @@ void clear_display(void)
 		vte_terminal_reset(VTE_TERMINAL(display), TRUE, TRUE);
 }
 
-void edit_copy_callback(GtkAction *action, gpointer data)
+void edit_copy_callback(GtkWidget *widget, gpointer data)
 {
-	vte_terminal_copy_clipboard(VTE_TERMINAL(display));
+	GtkClipboard *clipboard;
+	gchar *text;
+
+	if (!display)
+		return;
+
+	text = vte_terminal_get_text_selected(VTE_TERMINAL(display),
+	                                      VTE_FORMAT_TEXT);
+	if (text) {
+		clipboard = gtk_clipboard_get(GDK_SELECTION_CLIPBOARD);
+		gtk_clipboard_set_text(clipboard, text, -1);
+		g_free(text);
+	}
 }
 
 void update_copy_sensivity(VteTerminal *terminal, gpointer data)
 {
-	GtkAction *action;
 	gboolean can_copy;
 
 	can_copy = vte_terminal_get_has_selection(VTE_TERMINAL(terminal));
 
-	action = gtk_action_group_get_action(action_group, "EditCopy");
-	gtk_action_set_sensitive(action, can_copy);
+	gtk_widget_set_sensitive(menu_item_edit_copy, can_copy);
+	gtk_widget_set_sensitive(menu_item_edit_copy_popup, can_copy);
 }
 
-void edit_paste_callback(GtkAction *action, gpointer data)
+void edit_paste_callback(GtkWidget *widget, gpointer data)
 {
 	vte_terminal_paste_clipboard(VTE_TERMINAL(display));
 }
 
-void edit_find_callback(GtkAction *action)
+void edit_find_callback(GtkWidget *widget, gpointer data)
 {
 	if (gtk_widget_is_visible(searchBar))
 		search_bar_hide(searchBar);
@@ -1351,7 +1480,7 @@ void edit_find_callback(GtkAction *action)
 		search_bar_show(searchBar);
 }
 
-void edit_select_all_callback(GtkAction *action, gpointer data)
+void edit_select_all_callback(GtkWidget *widget, gpointer data)
 {
 	vte_terminal_select_all(VTE_TERMINAL(display));
 }

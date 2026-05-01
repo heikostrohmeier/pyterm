@@ -77,8 +77,8 @@ void send_raw_file(GtkAction *action, gpointer data)
 	file_select = gtk_file_chooser_dialog_new(_("Send RAW File"),
 	              GTK_WINDOW(Fenetre),
 	              GTK_FILE_CHOOSER_ACTION_OPEN,
-	              GTK_STOCK_CANCEL, GTK_RESPONSE_CANCEL,
-	              GTK_STOCK_OK, GTK_RESPONSE_ACCEPT,
+	              _("Cancel"), GTK_RESPONSE_CANCEL,
+	              _("OK"), GTK_RESPONSE_ACCEPT,
 	              NULL);
 
 	if(fic_defaut != NULL)
@@ -128,7 +128,7 @@ void send_raw_file(GtkAction *action, gpointer data)
 			Bouton_annuler = gtk_button_new_with_label(_("Cancel"));
 			g_signal_connect(GTK_WIDGET(Bouton_annuler), "clicked", G_CALLBACK(close_all), NULL);
 
-			gtk_container_add(GTK_CONTAINER(gtk_dialog_get_action_area(GTK_DIALOG(Window))), Bouton_annuler);
+			gtk_dialog_add_action_widget(GTK_DIALOG(Window), Bouton_annuler, GTK_RESPONSE_CANCEL);
 
 			g_signal_connect(GTK_WIDGET(Window), "delete_event", G_CALLBACK(close_all), NULL);
 
@@ -311,8 +311,8 @@ void save_raw_file(GtkAction *action, gpointer data)
 	file_select = gtk_file_chooser_dialog_new(_("Save RAW File"),
 	              GTK_WINDOW(Fenetre),
 	              GTK_FILE_CHOOSER_ACTION_SAVE,
-	              GTK_STOCK_CANCEL, GTK_RESPONSE_CANCEL,
-	              GTK_STOCK_SAVE, GTK_RESPONSE_ACCEPT,
+	              _("Cancel"), GTK_RESPONSE_CANCEL,
+	              _("Save"), GTK_RESPONSE_ACCEPT,
 	              NULL);
 	gtk_file_chooser_set_do_overwrite_confirmation(GTK_FILE_CHOOSER(file_select), TRUE);
 
@@ -362,8 +362,8 @@ void save_ascii_file(GtkAction *action, gpointer data)
 	file_select = gtk_file_chooser_dialog_new(_("Save ASCII File"),
 	              GTK_WINDOW(Fenetre),
 	              GTK_FILE_CHOOSER_ACTION_SAVE,
-	              GTK_STOCK_CANCEL, GTK_RESPONSE_CANCEL,
-	              GTK_STOCK_SAVE, GTK_RESPONSE_ACCEPT,
+	              _("Cancel"), GTK_RESPONSE_CANCEL,
+	              _("Save"), GTK_RESPONSE_ACCEPT,
 	              NULL);
 	gtk_file_chooser_set_do_overwrite_confirmation(GTK_FILE_CHOOSER(file_select), TRUE);
 
