@@ -1420,7 +1420,6 @@ Config_macros (GtkAction *action, gpointer data)
 
   model = create_model ();
   treeview = gtk_tree_view_new_with_model (model);
-  gtk_tree_view_set_rules_hint (GTK_TREE_VIEW (treeview), TRUE);
   gtk_tree_view_set_search_column (GTK_TREE_VIEW (treeview), COLUMN_SHORTCUT);
   g_object_unref (model);
 
