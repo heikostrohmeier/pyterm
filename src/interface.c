@@ -99,6 +99,7 @@ GtkAccelGroup *shortcuts;
 GtkWidget *display = NULL;
 GtkWidget *macro_panel;
 GtkWidget *macro_notebook;
+static GHashTable *hidden_macro_tabs;
 
 /* GAction infrastructure (for state management: enable/disable, toggle, radio) */
 static GSimpleAction *action_local_echo;
@@ -464,7 +465,7 @@ void rebuild_macro_buttons(void)
 	while (gtk_notebook_get_n_pages(GTK_NOTEBOOK(macro_notebook)) > 0)
 		gtk_notebook_remove_page(GTK_NOTEBOOK(macro_notebook), 0);
 
-	/* Collecter les noms d'onglets uniques dans l'ordre d'apparition */
+	/* Collecter les noms d'onglets uniques (non masqués) dans l'ordre d'apparition */
 	GList *tab_names = NULL;
 	for (gint i = 0; i < nb_macros; i++)
 	{
@@ -475,6 +476,9 @@ void rebuild_macro_buttons(void)
 
 		const gchar *tab = (macros[i].tab != NULL && strlen(macros[i].tab) > 0)
 		                   ? macros[i].tab : _("General");
+
+		if (g_hash_table_lookup(hidden_macro_tabs, tab) != NULL)
+			continue;
 
 		gboolean found = FALSE;
 		for (GList *l = tab_names; l != NULL; l = l->next)
@@ -679,11 +683,80 @@ void rebuild_macro_buttons(void)
 	g_list_free(tab_names);
 }
 
+static void on_macro_tab_visibility_toggled(GtkCheckMenuItem *check_item, gpointer user_data)
+{
+	const gchar *tab_name = (const gchar *)user_data;
+	gboolean active = gtk_check_menu_item_get_active(check_item);
+
+	if (active)
+		g_hash_table_remove(hidden_macro_tabs, tab_name);
+	else
+		g_hash_table_insert(hidden_macro_tabs, g_strdup(tab_name), GINT_TO_POINTER(1));
+
+	rebuild_macro_buttons();
+}
+
+static gboolean on_macro_notebook_button_press(GtkWidget *widget, GdkEventButton *event, gpointer user_data)
+{
+		if (event->button != 3)
+			return FALSE;
+
+	gint nb_macros = 0;
+	macro_t *macros = get_shortcuts(&nb_macros);
+
+	GList *tab_names = NULL;
+	for (gint i = 0; i < nb_macros; i++)
+	{
+		if (macros[i].label == NULL || strlen(macros[i].label) == 0)
+			continue;
+		if (macros[i].action == NULL || strlen(macros[i].action) == 0)
+			continue;
+
+		const gchar *tab = (macros[i].tab != NULL && strlen(macros[i].tab) > 0)
+		                   ? macros[i].tab : _("General");
+
+		gboolean found = FALSE;
+		for (GList *l = tab_names; l != NULL; l = l->next)
+		{
+			if (g_strcmp0((gchar *)l->data, tab) == 0)
+			{
+				found = TRUE;
+				break;
+			}
+		}
+		if (!found)
+			tab_names = g_list_append(tab_names, (gpointer)tab);
+	}
+
+	GtkWidget *menu = gtk_menu_new();
+	for (GList *l = tab_names; l != NULL; l = l->next)
+	{
+		const gchar *tab_name = (gchar *)l->data;
+		gboolean is_hidden = g_hash_table_lookup(hidden_macro_tabs, tab_name) != NULL;
+
+		GtkWidget *check = gtk_check_menu_item_new_with_label(tab_name);
+		gtk_check_menu_item_set_active(GTK_CHECK_MENU_ITEM(check), !is_hidden);
+		g_signal_connect(check, "toggled",
+		                 G_CALLBACK(on_macro_tab_visibility_toggled),
+		                 (gpointer)tab_name);
+		gtk_menu_shell_append(GTK_MENU_SHELL(menu), check);
+	}
+
+	gtk_widget_show_all(menu);
+	gtk_menu_popup_at_pointer(GTK_MENU(menu), (GdkEvent *)event);
+	g_list_free(tab_names);
+	return GDK_EVENT_STOP;
+}
+
 static void create_macro_panel(void)
 {
+	hidden_macro_tabs = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, NULL);
+
 	macro_notebook = gtk_notebook_new();
 	gtk_notebook_set_tab_pos(GTK_NOTEBOOK(macro_notebook), GTK_POS_TOP);
 	gtk_widget_set_size_request(macro_notebook, 170, -1);
+	g_signal_connect(macro_notebook, "button-press-event",
+	                 G_CALLBACK(on_macro_notebook_button_press), NULL);
 
 	macro_panel = macro_notebook;
 
