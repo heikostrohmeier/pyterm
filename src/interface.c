@@ -101,6 +101,34 @@ GtkWidget *macro_panel;
 GtkWidget *macro_notebook;
 static GHashTable *hidden_macro_tabs;
 
+/* Polling state per macro */
+typedef struct {
+	gint       macro_index;
+	guint      period_ms;
+	guint64    last_fire_us;
+	gboolean   enabled;
+	gboolean   running;
+	GtkWidget *button;
+	/* For macros with arguments */
+	gint       n_args;
+	gchar    **args;
+} macro_polling_t;
+
+static GHashTable *macro_polling_table;
+static GHashTable *macro_button_table;
+static gboolean blink_state = FALSE;
+
+static void free_polling_args(macro_polling_t *ps)
+{
+	if (ps->args)
+	{
+		for (gint k = 0; k < ps->n_args; k++)
+			g_free(ps->args[k]);
+		g_free(ps->args);
+	}
+	g_free(ps);
+}
+
 /* GAction infrastructure (for state management: enable/disable, toggle, radio) */
 static GSimpleAction *action_local_echo;
 static GSimpleAction *action_autoreconnect;
@@ -170,7 +198,15 @@ void edit_find_callback(GtkWidget *widget, gpointer data);
 void edit_select_all_callback(GtkWidget *widget, gpointer data);
 
 void view_macro_panel_toggled_callback(GSimpleAction *action, GVariant *parameter, gpointer data);
-static void on_macro_button_clicked(GtkWidget *widget, gpointer data);
+static void on_macro_button_clicked_with_polling(GtkWidget *widget, gpointer data);
+static gboolean on_macro_button_right_click(GtkWidget *button, GdkEventButton *event, gpointer user_data);
+static gboolean on_macro_notebook_button_press(GtkWidget *widget, GdkEventButton *event, gpointer user_data);
+static macro_polling_t *get_polling_state(gint macro_index);
+static void toggle_polling_run(gint macro_index);
+static void on_polling_period_changed(GtkWidget *entry, gpointer user_data);
+static gboolean polling_blink_callback(gpointer user_data);
+static void on_polling_mode_toggled(GtkCheckMenuItem *check_item, gpointer user_data);
+static void send_macro_by_index(gint macro_index);
 static void create_macro_panel(void);
 void rebuild_macro_buttons(void);
 void show_rxtx_toggled_callback(GSimpleAction *action, GVariant *parameter, gpointer data);
@@ -356,16 +392,6 @@ void terminal_popup_menu_callback(GtkWidget *widget, gpointer data)
 	gtk_menu_popup_at_pointer(GTK_MENU(popup_menu), NULL);
 }
 
-static void on_macro_button_clicked(GtkWidget *widget, gpointer data)
-{
-	gint macro_index = GPOINTER_TO_INT(data);
-	gint nb_macros = 0;
-	macro_t *macros = get_shortcuts(&nb_macros);
-
-	if (macros != NULL && macro_index < nb_macros && macros[macro_index].action != NULL)
-		shortcut_callback((gpointer)(long)macro_index);
-}
-
 typedef struct {
 	gint       macro_index;
 	GtkWidget **entries;
@@ -409,32 +435,352 @@ save_arg_from_widget(GtkWidget *widget)
 	save_config_silent();
 }
 
-static void on_list_action_button_clicked(GtkWidget *widget, gpointer data)
-{
-	gint macro_index = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(widget), "macro-index"));
-	gchar *list_value = (gchar *)g_object_get_data(G_OBJECT(widget), "list-value");
-	if (list_value == NULL) return;
+	static void on_list_action_button_clicked(GtkWidget *widget, gpointer data)
+	{
+		gint macro_index = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(widget), "macro-index"));
+		gchar *list_value = (gchar *)g_object_get_data(G_OBJECT(widget), "list-value");
+		if (list_value == NULL) return;
 
-	const gchar **args = g_new(const gchar *, 1);
-	args[0] = list_value;
-	send_macro_with_args(macro_index, args, 1);
-	g_free(args);
-}
+		const gchar **args = g_new(const gchar *, 1);
+		args[0] = list_value;
+		send_macro_with_args(macro_index, args, 1);
+		g_free(args);
+	}
 
 static void on_macro_arg_button_clicked(GtkWidget *widget, gpointer data)
 {
 	MacroArgData *d = (MacroArgData *)g_object_get_data(G_OBJECT(widget), "macro-data");
 	if (d == NULL) return;
+	gint macro_index = d->macro_index;
+
 	const gchar **args = g_new(const gchar *, d->n_entries);
 	for (gint k = 0; k < d->n_entries; k++)
 	{
 		gchar *val = get_arg_value_from_widget(d->entries[k]);
 		args[k] = val;
 	}
-	send_macro_with_args(d->macro_index, args, d->n_entries);
+
+	macro_polling_t *ps = get_polling_state(macro_index);
+	if (ps && ps->enabled)
+	{
+		/* Store args copy for polling */
+		if (ps->args)
+		{
+			for (gint k = 0; k < ps->n_args; k++)
+				g_free(ps->args[k]);
+			g_free(ps->args);
+		}
+		ps->n_args = d->n_entries;
+		ps->args = g_new(gchar *, d->n_entries);
+		for (gint k = 0; k < d->n_entries; k++)
+			ps->args[k] = g_strdup(args[k]);
+
+		toggle_polling_run(macro_index);
+
+		if (ps->running)
+		{
+			ps->last_fire_us = g_get_monotonic_time();
+			send_macro_with_args(macro_index, args, d->n_entries);
+		}
+	}
+	else
+	{
+		send_macro_with_args(macro_index, args, d->n_entries);
+	}
+
 	for (gint k = 0; k < d->n_entries; k++)
 		g_free((gchar *)args[k]);
 	g_free(args);
+}
+
+/* --- Polling system --- */
+
+static void send_macro_by_index(gint macro_index)
+{
+	gint nb_macros = 0;
+	macro_t *macros = get_shortcuts(&nb_macros);
+	if (macros != NULL && macro_index < nb_macros && macros[macro_index].action != NULL)
+		shortcut_callback((gpointer)(long)macro_index);
+}
+
+static macro_polling_t *get_polling_state(gint macro_index)
+{
+	return (macro_polling_t *)g_hash_table_lookup(macro_polling_table, GINT_TO_POINTER(macro_index));
+}
+
+static void set_polling_state(gint macro_index, guint period_ms, gboolean enabled, gboolean running, GtkWidget *button)
+{
+	macro_polling_t *ps = g_new0(macro_polling_t, 1);
+	ps->macro_index = macro_index;
+	ps->period_ms = period_ms;
+	ps->enabled = enabled;
+	ps->running = running;
+	ps->button = button;
+	g_hash_table_insert(macro_polling_table, GINT_TO_POINTER(macro_index), ps);
+}
+
+static GtkCssProvider *polling_css_provider = NULL;
+
+static void apply_polling_css(GtkWidget *button)
+{
+	if (button == NULL || polling_css_provider == NULL) return;
+	GtkStyleContext *ctx = gtk_widget_get_style_context(button);
+	gtk_style_context_add_provider(ctx, GTK_STYLE_PROVIDER(polling_css_provider),
+	                               GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
+}
+
+static void update_button_label(macro_polling_t *ps)
+{
+	if (ps == NULL || ps->button == NULL)
+		return;
+
+	gint nb_macros = 0;
+	macro_t *macros = get_shortcuts(&nb_macros);
+	if (ps->macro_index < 0 || ps->macro_index >= nb_macros || macros[ps->macro_index].label == NULL)
+		return;
+
+	const gchar *base = macros[ps->macro_index].label;
+	if (ps->enabled)
+		gtk_button_set_label(GTK_BUTTON(ps->button), g_strdup_printf("⏱ %s", base));
+	else
+		gtk_button_set_label(GTK_BUTTON(ps->button), base);
+}
+
+static void update_button_appearance(macro_polling_t *ps)
+{
+	if (ps == NULL || ps->button == NULL)
+		return;
+
+	GtkStyleContext *ctx = gtk_widget_get_style_context(ps->button);
+	gtk_style_context_remove_class(ctx, "polling-blink");
+	gtk_widget_queue_draw(ps->button);
+
+	update_button_label(ps);
+}
+static void toggle_polling_run(gint macro_index)
+{
+	macro_polling_t *ps = get_polling_state(macro_index);
+	if (ps == NULL || !ps->enabled)
+		return;
+
+	ps->running = !ps->running;
+	update_button_appearance(ps);
+}
+
+static void restore_macro_polling(gint macro_index, gboolean enabled, guint period_ms)
+{
+	GtkWidget *btn = g_hash_table_lookup(macro_button_table, GINT_TO_POINTER(macro_index));
+	if (btn == NULL)
+		return;
+
+	macro_polling_t *ps = get_polling_state(macro_index);
+	if (ps == NULL)
+	{
+		set_polling_state(macro_index, period_ms, enabled, FALSE, btn);
+		ps = get_polling_state(macro_index);
+	}
+	else
+	{
+		ps->period_ms = period_ms;
+		ps->enabled = enabled;
+		ps->running = FALSE;
+		ps->button = btn;
+	}
+
+	if (enabled)
+	{
+		update_button_label(ps);
+		apply_polling_css(btn);
+	}
+	else
+	{
+		update_button_appearance(ps);
+	}
+
+	macro_set_polling(macro_index, enabled, period_ms);
+}
+
+static gboolean polling_blink_callback(gpointer user_data)
+{
+	blink_state = !blink_state;
+	GList *values = g_hash_table_get_values(macro_polling_table);
+	for (GList *l = values; l != NULL; l = l->next)
+	{
+		macro_polling_t *ps = (macro_polling_t *)l->data;
+		if (ps->enabled && ps->running && ps->button != NULL)
+		{
+			GtkStyleContext *ctx = gtk_widget_get_style_context(ps->button);
+			gtk_style_context_remove_class(ctx, "polling-blink");
+			if (blink_state)
+				gtk_style_context_add_class(ctx, "polling-blink");
+			gtk_widget_queue_draw(ps->button);
+			//g_print("[BLINK] macro=%d state=%d\n", ps->macro_index, blink_state);
+		}
+	}
+	g_list_free(values);
+	return G_SOURCE_CONTINUE;
+}
+
+static gboolean polling_timer_callback(gpointer user_data)
+{
+	guint64 now = g_get_monotonic_time();
+	GList *values = g_hash_table_get_values(macro_polling_table);
+
+	for (GList *l = values; l != NULL; l = l->next)
+	{
+		macro_polling_t *ps = (macro_polling_t *)l->data;
+		if (ps->enabled && ps->running)
+		{
+			guint64 elapsed_us = now - ps->last_fire_us;
+			if (elapsed_us >= ps->period_ms * 1000)
+			{
+				if (ps->n_args > 0 && ps->args)
+					send_macro_with_args(ps->macro_index, (const gchar **)ps->args, ps->n_args);
+				else
+					send_macro_by_index(ps->macro_index);
+				ps->last_fire_us = now;
+			}
+		}
+	}
+	g_list_free(values);
+	return G_SOURCE_CONTINUE;
+}
+
+static gboolean on_macro_button_right_click(GtkWidget *button, GdkEventButton *event, gpointer user_data)
+{
+	if (event->button != 3)
+		return FALSE;
+
+	if (g_object_get_data(G_OBJECT(button), "list-value") != NULL)
+		return FALSE;
+
+	gint macro_index = GPOINTER_TO_INT(user_data);
+	macro_polling_t *ps = get_polling_state(macro_index);
+
+	GtkWidget *menu = gtk_menu_new();
+
+	/* Polling mode toggle */
+	GtkWidget *polling_toggle = gtk_check_menu_item_new_with_label(_("Polling Mode"));
+	if (ps)
+		gtk_check_menu_item_set_active(GTK_CHECK_MENU_ITEM(polling_toggle), ps->enabled);
+	g_object_set_data(G_OBJECT(polling_toggle), "macro-index", GINT_TO_POINTER(macro_index));
+	g_signal_connect(polling_toggle, "toggled",
+	                 G_CALLBACK(on_polling_mode_toggled), NULL);
+	gtk_menu_shell_append(GTK_MENU_SHELL(menu), polling_toggle);
+
+	/* Period entry */
+	GtkWidget *period_vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 4);
+	gtk_container_set_border_width(GTK_CONTAINER(period_vbox), 8);
+
+	GtkWidget *period_label = gtk_label_new(_("Period (ms)"));
+	gtk_box_pack_start(GTK_BOX(period_vbox), period_label, FALSE, FALSE, 0);
+
+	GtkWidget *period_entry = gtk_entry_new();
+	gtk_entry_set_width_chars(GTK_ENTRY(period_entry), 8);
+	gtk_entry_set_input_purpose(GTK_ENTRY(period_entry), GTK_INPUT_PURPOSE_DIGITS);
+	if (ps)
+	{
+		gchar buf[16];
+		g_snprintf(buf, sizeof(buf), "%u", ps->period_ms);
+		gtk_entry_set_text(GTK_ENTRY(period_entry), buf);
+	}
+	else
+		gtk_entry_set_text(GTK_ENTRY(period_entry), "1000");
+
+	g_object_set_data(G_OBJECT(period_entry), "macro-index", GINT_TO_POINTER(macro_index));
+	g_signal_connect(period_entry, "changed",
+	                 G_CALLBACK(on_polling_period_changed), NULL);
+	gtk_box_pack_start(GTK_BOX(period_vbox), period_entry, FALSE, FALSE, 0);
+
+	GtkWidget *period_menu_item = gtk_menu_item_new();
+	gtk_container_add(GTK_CONTAINER(period_menu_item), period_vbox);
+	gtk_menu_shell_append(GTK_MENU_SHELL(menu), period_menu_item);
+
+	gtk_widget_show_all(menu);
+	gtk_menu_popup_at_pointer(GTK_MENU(menu), (GdkEvent *)event);
+	gtk_widget_grab_focus(period_entry);
+	return TRUE;
+}
+
+static void on_polling_mode_toggled(GtkCheckMenuItem *check_item, gpointer user_data)
+{
+	gint macro_index = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(check_item), "macro-index"));
+	gboolean active = gtk_check_menu_item_get_active(check_item);
+	macro_polling_t *ps = get_polling_state(macro_index);
+
+	if (active)
+	{
+		GtkWidget *btn = g_hash_table_lookup(macro_button_table, GINT_TO_POINTER(macro_index));
+		if (ps == NULL)
+		{
+			set_polling_state(macro_index, 1000, TRUE, FALSE, btn);
+			ps = get_polling_state(macro_index);
+		}
+		else
+		{
+			ps->button = btn;
+			ps->enabled = TRUE;
+			ps->running = FALSE;
+		}
+		update_button_appearance(ps);
+		macro_set_polling(macro_index, TRUE, ps->period_ms);
+		macros_file_save(NULL);
+	}
+	else if (ps)
+	{
+		ps->enabled = FALSE;
+		ps->running = FALSE;
+		update_button_appearance(ps);
+		macro_set_polling(macro_index, FALSE, ps->period_ms);
+		macros_file_save(NULL);
+	}
+}
+
+static void on_polling_period_changed(GtkWidget *entry, gpointer user_data)
+{
+	gint macro_index = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(entry), "macro-index"));
+	guint period_ms = (guint)strtoul(gtk_entry_get_text(GTK_ENTRY(entry)), NULL, 10);
+	if (period_ms == 0)
+		period_ms = 1000;
+
+	GtkWidget *btn = g_hash_table_lookup(macro_button_table, GINT_TO_POINTER(macro_index));
+	macro_polling_t *ps = get_polling_state(macro_index);
+	if (ps)
+	{
+		ps->period_ms = period_ms;
+		ps->button = btn;
+		macro_set_polling(macro_index, ps->enabled, period_ms);
+		macros_file_save(NULL);
+	}
+	else
+	{
+		set_polling_state(macro_index, period_ms, FALSE, FALSE, btn);
+	}
+}
+
+/* Override click handler for polling */
+static void on_macro_button_clicked_with_polling(GtkWidget *widget, gpointer data)
+{
+	gint macro_index = GPOINTER_TO_INT(data);
+	macro_polling_t *ps = get_polling_state(macro_index);
+
+
+
+	if (ps && ps->enabled)
+	{
+		toggle_polling_run(macro_index);
+
+		if (ps->running)
+		{
+			ps->last_fire_us = g_get_monotonic_time();
+			send_macro_by_index(macro_index);
+		}
+	}
+	else
+	{
+
+		send_macro_by_index(macro_index);
+	}
 }
 
 static void save_entry_arg(GtkWidget *entry)
@@ -559,14 +905,21 @@ void rebuild_macro_buttons(void)
 						gchar *label = g_strdup_printf("%s %s",
 						                             macros[i].label,
 						                             macro_list_entry_display(list_idx, ei));
-						GtkWidget *button = gtk_button_new_with_label(label);
-						g_free(label);
-						g_object_set_data(G_OBJECT(button), "macro-index", GINT_TO_POINTER(i));
+					GtkWidget *button = gtk_button_new_with_label(label);
+					g_free(label);
+					g_object_set_data(G_OBJECT(button), "macro-index", GINT_TO_POINTER(i));
+
+					/* Store button reference for polling */
+					g_hash_table_insert(macro_button_table, GINT_TO_POINTER(i), button);
+					apply_polling_css(button);
 						g_object_set_data(G_OBJECT(button), "list-value",
 						                 (gpointer)macro_list_entry_value(list_idx, ei));
 						gtk_widget_set_tooltip_text(button, tooltip);
 						g_signal_connect(button, "clicked",
 						                 G_CALLBACK(on_list_action_button_clicked), NULL);
+						g_signal_connect(button, "button-press-event",
+						                 G_CALLBACK(on_macro_button_right_click),
+						                 GINT_TO_POINTER(i));
 						gtk_box_pack_start(GTK_BOX(hbox), button, FALSE, FALSE, 0);
 					}
 					gtk_box_pack_start(GTK_BOX(vbox), hbox, FALSE, FALSE, 2);
@@ -574,19 +927,26 @@ void rebuild_macro_buttons(void)
 					continue;
 				}
 
-				GtkWidget *hbox   = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 2);
-				GtkWidget *button = gtk_button_new_with_label(macros[i].label);
+			GtkWidget *hbox   = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 2);
+			GtkWidget *button = gtk_button_new_with_label(macros[i].label);
 
-				MacroArgData *d = g_new(MacroArgData, 1);
-				d->macro_index = i;
-				d->n_entries   = n_args;
-				d->entries     = g_new(GtkWidget *, n_args);
+			/* Store button reference for polling */
+			g_hash_table_insert(macro_button_table, GINT_TO_POINTER(i), button);
+			apply_polling_css(button);
 
-				g_object_set_data_full(G_OBJECT(button), "macro-data", d, macro_arg_data_free);
-				g_signal_connect(button, "clicked",
-				                 G_CALLBACK(on_macro_arg_button_clicked), NULL);
-				gtk_widget_set_tooltip_text(button, tooltip);
-				gtk_box_pack_start(GTK_BOX(hbox), button, FALSE, FALSE, 0);
+			MacroArgData *d = g_new(MacroArgData, 1);
+			d->macro_index = i;
+			d->n_entries   = n_args;
+			d->entries     = g_new(GtkWidget *, n_args);
+
+			g_object_set_data_full(G_OBJECT(button), "macro-data", d, macro_arg_data_free);
+			g_signal_connect(button, "clicked",
+			                 G_CALLBACK(on_macro_arg_button_clicked), NULL);
+			g_signal_connect(button, "button-press-event",
+			                 G_CALLBACK(on_macro_button_right_click),
+			                 GINT_TO_POINTER(i));
+			gtk_widget_set_tooltip_text(button, tooltip);
+			gtk_box_pack_start(GTK_BOX(hbox), button, FALSE, FALSE, 0);
 
 				for (gint k = 0; k < n_args; k++)
 				{
@@ -667,8 +1027,16 @@ void rebuild_macro_buttons(void)
 			else
 			{
 				GtkWidget *button = gtk_button_new_with_label(macros[i].label);
+
+				/* Store button reference for polling */
+				g_hash_table_insert(macro_button_table, GINT_TO_POINTER(i), button);
+				apply_polling_css(button);
+
 				g_signal_connect(button, "clicked",
-				                 G_CALLBACK(on_macro_button_clicked),
+				                 G_CALLBACK(on_macro_button_clicked_with_polling),
+				                 GINT_TO_POINTER(i));
+				g_signal_connect(button, "button-press-event",
+				                 G_CALLBACK(on_macro_button_right_click),
 				                 GINT_TO_POINTER(i));
 				gtk_widget_set_tooltip_text(button, tooltip);
 				gtk_box_pack_start(GTK_BOX(vbox), button, FALSE, FALSE, 2);
@@ -681,6 +1049,13 @@ void rebuild_macro_buttons(void)
 	}
 
 	g_list_free(tab_names);
+
+	/* Restore polling state from macro_t */
+	for (gint i = 0; i < nb_macros; i++)
+	{
+		if (macros[i].polling_enabled)
+			restore_macro_polling(i, TRUE, macros[i].polling_period_ms);
+	}
 }
 
 static void on_macro_tab_visibility_toggled(GtkCheckMenuItem *check_item, gpointer user_data)
@@ -698,8 +1073,13 @@ static void on_macro_tab_visibility_toggled(GtkCheckMenuItem *check_item, gpoint
 
 static gboolean on_macro_notebook_button_press(GtkWidget *widget, GdkEventButton *event, gpointer user_data)
 {
-		if (event->button != 3)
-			return FALSE;
+	if (event->button != 3)
+		return FALSE;
+
+	GtkWidget *target = gtk_get_event_widget((GdkEvent *)event);
+	GtkWidget *btn = gtk_widget_get_ancestor(target, GTK_TYPE_BUTTON);
+	if (btn != NULL)
+		return FALSE;
 
 	gint nb_macros = 0;
 	macro_t *macros = get_shortcuts(&nb_macros);
@@ -751,6 +1131,8 @@ static gboolean on_macro_notebook_button_press(GtkWidget *widget, GdkEventButton
 static void create_macro_panel(void)
 {
 	hidden_macro_tabs = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, NULL);
+	macro_polling_table = g_hash_table_new_full(g_direct_hash, g_direct_equal, NULL, (GDestroyNotify)free_polling_args);
+	macro_button_table = g_hash_table_new_full(g_direct_hash, g_direct_equal, NULL, NULL);
 
 	macro_notebook = gtk_notebook_new();
 	gtk_notebook_set_tab_pos(GTK_NOTEBOOK(macro_notebook), GTK_POS_TOP);
@@ -760,6 +1142,14 @@ static void create_macro_panel(void)
 
 	macro_panel = macro_notebook;
 
+	/* Initialize CSS provider for polling blink */
+	polling_css_provider = gtk_css_provider_new();
+	gtk_css_provider_load_from_data(polling_css_provider,
+	    "button.polling-blink { background-color: #abf573; background-image: none; color: black; border-color: #00cc00; }\n",
+	    -1, NULL);
+
+	g_timeout_add(1, polling_timer_callback, NULL);
+	g_timeout_add(500, polling_blink_callback, NULL);
 	rebuild_macro_buttons();
 }
 

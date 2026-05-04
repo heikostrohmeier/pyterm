@@ -23,6 +23,8 @@ typedef struct
   gchar *tab;
   gchar **args;    /* valeurs des arguments (%d, %f, %s…), tableau NULL-terminé */
   GClosure *closure;
+  gboolean polling_enabled;
+  guint    polling_period_ms;
 } macro_t;
 
 /* --- Listes de valeurs (%#NomListe) --- */
@@ -76,6 +78,7 @@ gchar   *macro_get_format_types (const gchar *action, gint *count_out);
 void     send_macro_with_arg    (gint macro_index, const gchar *arg_str);
 void     send_macro_with_args   (gint macro_index, const gchar **args, gint n_args);
 void     macro_set_arg          (gint macro_index, gint arg_index, const gchar *value);
+void     macro_set_polling      (gint macro_index, gboolean enabled, guint period_ms);
 
 /* --- Fichier macros séparé --- */
 void     macros_file_load (const gchar *path);

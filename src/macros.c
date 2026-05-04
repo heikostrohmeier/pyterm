@@ -1147,6 +1147,17 @@ macro_set_arg (gint macro_index, gint arg_index, const gchar *value)
   macros[macro_index].args[arg_index] = g_strdup (value ? value : "");
 }
 
+void
+macro_set_polling (gint macro_index, gboolean enabled, guint period_ms)
+{
+  gint nb_macros = 0;
+  get_shortcuts (&nb_macros);
+  if (macro_index >= nb_macros)
+    return;
+  macros[macro_index].polling_enabled = enabled;
+  macros[macro_index].polling_period_ms = period_ms;
+}
+
 static gboolean
 key_pressed (GtkWidget *window, GdkEventKey *key, gpointer pointer)
 {
@@ -1580,12 +1591,14 @@ write_macros_to_file (const gchar *path, macro_t *m, gint size)
     {
       gchar *args_str = m[i].args ? g_strjoinv ("|", m[i].args) : g_strdup ("");
       gchar *key = g_strdup_printf ("macro_%d", i);
-      gchar *val = g_strdup_printf ("%s::%s::%s::%s::%s",
+      gchar *val = g_strdup_printf ("%s::%s::%s::%s::%s::%d::%u",
                                     m[i].label    ? m[i].label    : "",
                                     m[i].shortcut ? m[i].shortcut : "",
                                     m[i].action   ? m[i].action   : "",
                                     m[i].tab      ? m[i].tab      : "",
-                                    args_str);
+                                    args_str,
+                                    m[i].polling_enabled ? 1 : 0,
+                                    m[i].polling_period_ms);
       g_key_file_set_string (kf, "macros", key, val);
       g_free (key);
       g_free (val);
@@ -1697,13 +1710,44 @@ macros_file_load (const gchar *path)
                         {
                           new_macros[i].action = g_strndup (sep2 + 2, sep3 - (sep2 + 2));
                           new_macros[i].tab = g_strndup (sep3 + 2, sep4 - (sep3 + 2));
-                          new_macros[i].args = g_strsplit (sep4 + 2, "|", -1);
+
+                          gchar *sep5 = strstr (sep4 + 2, "::");
+                          if (sep5)
+                            {
+                              gchar *args_str = g_strndup (sep4 + 2, sep5 - (sep4 + 2));
+                              new_macros[i].args = g_strsplit (args_str, "|", -1);
+                              g_free (args_str);
+
+                              gchar *sep6 = strstr (sep5 + 2, "::");
+                              if (sep6)
+                                {
+                                  gchar *en_str = g_strndup (sep5 + 2, sep6 - (sep5 + 2));
+                                  new_macros[i].polling_enabled = (g_strcmp0 (en_str, "1") == 0);
+                                  g_free (en_str);
+                                  new_macros[i].polling_period_ms = (guint)strtoul (sep6 + 2, NULL, 10);
+                                }
+                              else
+                                {
+                                  gchar *en_str = g_strdup (sep5 + 2);
+                                  new_macros[i].polling_enabled = (g_strcmp0 (en_str, "1") == 0);
+                                  g_free (en_str);
+                                  new_macros[i].polling_period_ms = 1000;
+                                }
+                            }
+                          else
+                            {
+                              new_macros[i].args = g_strsplit (sep4 + 2, "|", -1);
+                              new_macros[i].polling_enabled = FALSE;
+                              new_macros[i].polling_period_ms = 1000;
+                            }
                         }
                       else
                         {
                           new_macros[i].action = g_strdup (sep2 + 2);
                           new_macros[i].tab = g_strdup (sep3 + 2);
                           new_macros[i].args = NULL;
+                          new_macros[i].polling_enabled = FALSE;
+                          new_macros[i].polling_period_ms = 1000;
                         }
                     }
                   else
@@ -1711,6 +1755,8 @@ macros_file_load (const gchar *path)
                       new_macros[i].action = g_strdup (sep2 + 2);
                       new_macros[i].tab = g_strdup ("");
                       new_macros[i].args = NULL;
+                      new_macros[i].polling_enabled = FALSE;
+                      new_macros[i].polling_period_ms = 1000;
                     }
 
                   if (!new_macros[i].label) new_macros[i].label = g_strdup ("");
@@ -1723,6 +1769,8 @@ macros_file_load (const gchar *path)
                   new_macros[i].action = g_strdup ("");
                   new_macros[i].tab = g_strdup ("");
                   new_macros[i].args = NULL;
+                  new_macros[i].polling_enabled = FALSE;
+                  new_macros[i].polling_period_ms = 1000;
                 }
 
               g_free (val);
