@@ -57,6 +57,7 @@ typedef struct
 {
   gchar  type;           /* 'd','f','s'... ou 'l' pour liste */
   gchar *list_name;      /* nom de la liste si type=='l', sinon NULL */
+  gchar *label;          /* texte du label (ex: "[addr]%s" → "addr"), sinon NULL */
 } macro_arg_info_t;
 
 macro_arg_info_t *macro_get_arg_infos (const gchar *action, gint *count_out);

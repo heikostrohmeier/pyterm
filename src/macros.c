@@ -346,6 +346,35 @@ parse_one_spec (const gchar *action, gint start, gint *end_out)
   return '\0';
 }
 
+/* Tente de parser [label] juste avant action[start] (où action[start]=='%').
+   Retourne l'indice de '[' trouvé, ou -1 s'il n'y a pas de label.
+   Écrit le texte du label dans *label_out (à libérer avec g_free). */
+static gint
+try_parse_label (const gchar *action, gint start, gchar **label_out)
+{
+  if (label_out)
+    *label_out = NULL;
+  if (start <= 0 || action[start] != '%')
+    return -1;
+
+  gint j = start - 1;
+  while (j >= 0 && action[j] == ' ')
+    j--;
+  if (j < 0 || action[j] != ']')
+    return -1;
+
+  gint bracket_end = j;
+  while (j >= 0 && action[j] != '[')
+    j--;
+  if (j < 0)
+    return -1;
+
+  gchar *label = g_strndup (&action[j + 1], bracket_end - j - 1);
+  if (label_out)
+    *label_out = label;
+  return j;
+}
+
 /* Parse un spécificateur de liste %#NomListe.
    Retourne TRUE si c'est une liste, écrit le nom dans *name_out (à libérer) et la fin dans *end_out. */
 static gboolean
@@ -534,6 +563,9 @@ macro_get_arg_infos (const gchar *action, gint *count_out)
           continue;
         }
 
+      /* Parser le label [texte] avant le spécificateur */
+      (void) try_parse_label (action, i, &infos[idx].label);
+
       {
         gchar *list_name = NULL;
         gint end;
@@ -567,7 +599,10 @@ macro_arg_infos_free (macro_arg_info_t *infos, gint count)
   if (!infos)
     return;
   for (gint i = 0; i < count; i++)
-    g_free (infos[i].list_name);
+    {
+      g_free (infos[i].list_name);
+      g_free (infos[i].label);
+    }
   g_free (infos);
 }
 
@@ -591,6 +626,13 @@ format_action_with_args (const gchar *action, const gchar **args, gint n_args)
           i++;
           continue;
         }
+
+      /* Si un label [texte] précède ce spécificateur, le retirer du résultat */
+      {
+        gint label_start = try_parse_label (action, i, NULL);
+        if (label_start >= 0)
+          g_string_truncate (result, result->len - (i - label_start));
+      }
 
       {
         gchar *list_name = NULL;

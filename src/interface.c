@@ -639,7 +639,23 @@ void rebuild_macro_buttons(void)
 					if (GTK_IS_ENTRY(widget))
 						g_signal_connect(widget, "activate",
 						                 G_CALLBACK(on_macro_arg_entry_activate), button);
-					gtk_box_pack_start(GTK_BOX(hbox), widget, TRUE, TRUE, 0);
+
+					/* Wrapper vertical : label au-dessus du champ si spécifié */
+					if (arg_infos[k].label != NULL)
+					{
+						GtkWidget *arg_vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 1);
+						GtkWidget *lbl = gtk_label_new(arg_infos[k].label);
+						gtk_label_set_xalign(GTK_LABEL(lbl), 0.5);
+						gtk_style_context_add_class(gtk_widget_get_style_context(lbl), "dim-label");
+						gtk_widget_set_size_request(lbl, 50, -1);
+						gtk_box_pack_start(GTK_BOX(arg_vbox), lbl, FALSE, FALSE, 0);
+						gtk_box_pack_start(GTK_BOX(arg_vbox), widget, TRUE, TRUE, 0);
+						gtk_box_pack_start(GTK_BOX(hbox), arg_vbox, TRUE, TRUE, 0);
+					}
+					else
+					{
+						gtk_box_pack_start(GTK_BOX(hbox), widget, TRUE, TRUE, 0);
+					}
 				}
 				macro_arg_infos_free(arg_infos, n_args);
 				gtk_box_pack_start(GTK_BOX(vbox), hbox, FALSE, FALSE, 2);
