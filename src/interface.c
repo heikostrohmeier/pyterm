@@ -152,6 +152,9 @@ static GtkWidget *menu_item_log_to_file;
 static GtkWidget *menu_item_log_pause_resume;
 static GtkWidget *menu_item_log_stop;
 static GtkWidget *menu_item_log_clear;
+static GtkWidget *menu_item_send_break;
+static GtkWidget *menu_item_toggle_dtr;
+static GtkWidget *menu_item_toggle_rts;
 
 GtkWidget *Text;
 GtkTextBuffer *buffer;
@@ -1456,6 +1459,7 @@ static void populate_signals_menu(GtkWidget *menu)
 {
 	GtkWidget *item;
 	item = gtk_menu_item_new_with_mnemonic(_("Send break"));
+	menu_item_send_break = item;
 	connect_menu_item_callback(item, G_CALLBACK(signals_send_break_callback));
 	gtk_menu_shell_append(GTK_MENU_SHELL(menu), item);
 
@@ -1468,10 +1472,12 @@ static void populate_signals_menu(GtkWidget *menu)
 	gtk_menu_shell_append(GTK_MENU_SHELL(menu), item);
 
 	item = gtk_menu_item_new_with_mnemonic(_("Toggle DTR"));
+	menu_item_toggle_dtr = item;
 	connect_menu_item_callback(item, G_CALLBACK(signals_toggle_DTR_callback));
 	gtk_menu_shell_append(GTK_MENU_SHELL(menu), item);
 
 	item = gtk_menu_item_new_with_mnemonic(_("Toggle RTS"));
+	menu_item_toggle_rts = item;
 	connect_menu_item_callback(item, G_CALLBACK(signals_toggle_RTS_callback));
 	gtk_menu_shell_append(GTK_MENU_SHELL(menu), item);
 }
@@ -1955,9 +1961,23 @@ void signals_open_port(GtkAction *action, gpointer data)
 gboolean control_signals_read(void)
 {
 	int state;
+	gboolean is_serial = (config.transport_type == TRANSPORT_SERIAL);
 
-	if(config.transport_type != TRANSPORT_SERIAL)
+	if(!is_serial)
+	{
+		for(int i = 0; i < 6; i++)
+			gtk_widget_hide(signals[i]);
+		gtk_widget_set_sensitive(menu_item_send_break, FALSE);
+		gtk_widget_set_sensitive(menu_item_toggle_dtr, FALSE);
+		gtk_widget_set_sensitive(menu_item_toggle_rts, FALSE);
 		return TRUE;
+	}
+
+	for(int i = 0; i < 6; i++)
+		gtk_widget_show(signals[i]);
+	gtk_widget_set_sensitive(menu_item_send_break, TRUE);
+	gtk_widget_set_sensitive(menu_item_toggle_dtr, TRUE);
+	gtk_widget_set_sensitive(menu_item_toggle_rts, TRUE);
 
 	state = lis_sig();
 	if(state >= 0)
