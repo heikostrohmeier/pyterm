@@ -57,7 +57,10 @@ void create_buffer(void)
 void delete_buffer(void)
 {
 	if(buffer != NULL)
+	{
 		free(buffer);
+		buffer = NULL;
+	}
 	return;
 }
 

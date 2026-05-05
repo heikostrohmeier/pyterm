@@ -2158,18 +2158,17 @@ void update_hex_history(GtkWidget *widget) {
     }
 
     if (!current_hex) {
-        // If current_hex is NULL, add the text to the end of the history
         hex_history = g_list_append(hex_history, g_strdup(text));
     } else {
         const gchar *current_text = (const gchar *)current_hex->data;
 
         if (g_strcmp0(current_text, text) == 0) {
-            // If the entered text matches the current_hex, move it to the end
-            g_free((gchar *)current_hex->data);
-            hex_history = g_list_remove(hex_history, current_hex->data);
-            hex_history = g_list_append(hex_history, g_strdup(current_text));
+            gchar *old_data = current_hex->data;
+            gchar *dup = g_strdup(current_text);
+            g_free(old_data);
+            hex_history = g_list_remove(hex_history, old_data);
+            hex_history = g_list_append(hex_history, dup);
         } else {
-            // If the text is different, add it as a new entry
             hex_history = g_list_append(hex_history, g_strdup(text));
         }
     }

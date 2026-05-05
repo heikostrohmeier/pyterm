@@ -61,7 +61,7 @@
 
 /* Configuration file variables */
 gchar **port;
-gint *speed;
+guint *speed;
 gint *bits;
 gint *stopbits;
 gchar **parity;
@@ -97,7 +97,7 @@ gchar **macros_file;
 cfgStruct cfg[] =
 {
 	{"port", CFG_STRING, &port},
-	{"speed", CFG_INT, &speed},
+	{"speed", CFG_UINT, &speed},
 	{"bits", CFG_INT, &bits},
 	{"stopbits", CFG_INT, &stopbits},
 	{"parity", CFG_STRING, &parity},
@@ -172,6 +172,8 @@ void config_file_init(void)
 
 	if (!g_file_query_exists(config_file, NULL) && g_file_query_exists(config_file_old, NULL))
 		g_file_move(config_file_old, config_file, G_FILE_COPY_NONE, NULL, NULL, NULL, NULL);
+
+	g_object_unref(config_file_old);
 }
 
 void ConfigFlags(void)
@@ -1196,7 +1198,7 @@ void load_config(GtkDialog *Fenetre, gint id, GtkTreeSelection *Selection_Liste)
 	{
 		if(gtk_tree_selection_get_selected(Selection_Liste, &Modele, &iter))
 		{
-			gtk_tree_model_get(GTK_TREE_MODEL(Modele), &iter, 0, (gint *)&txt, -1);
+			gtk_tree_model_get(GTK_TREE_MODEL(Modele), &iter, 0, &txt, -1);
 			Load_configuration_from_file(txt);
 			Verify_configuration();
 			Config_port();
@@ -1221,7 +1223,7 @@ void delete_config(GtkDialog *Fenetre, gint id, GtkTreeSelection *Selection_List
 	{
 		if(gtk_tree_selection_get_selected(Selection_Liste, &Modele, &iter))
 		{
-			gtk_tree_model_get(GTK_TREE_MODEL(Modele), &iter, 0, (gint *)&txt, -1);
+			gtk_tree_model_get(GTK_TREE_MODEL(Modele), &iter, 0, &txt, -1);
 			if(remove_section(g_file_get_path(config_file), txt) == -1)
 				show_message(_("Cannot delete section!"), MSG_ERR);
 		}
@@ -1435,7 +1437,7 @@ void Verify_configuration(void)
 	}
 
 	if(term_conf.font == NULL)
-		term_conf.font = g_strdup_printf(DEFAULT_FONT);
+		term_conf.font = g_strdup(DEFAULT_FONT);
 
 }
 
@@ -1814,6 +1816,7 @@ void Config_Terminal(GtkAction *action, gpointer data)
 	g_signal_connect_swapped(close, "clicked", G_CALLBACK(gtk_widget_destroy), GTK_WIDGET(dialog));
 
 	gtk_widget_show_all(dialog);
+	g_object_unref(builder);
 }
 
 gboolean cursor_block(GtkSwitch *ToggleSwitch, gboolean state, gpointer data)

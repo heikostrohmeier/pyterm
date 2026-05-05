@@ -263,17 +263,22 @@ gboolean Config_port(void)
 	tcflush(serial_port_fd, TCOFLUSH);
 	tcflush(serial_port_fd, TCIFLUSH);
 
-	callback_handler_in = g_io_add_watch_full(g_io_channel_unix_new(serial_port_fd),
+	GIOChannel *channel = g_io_channel_unix_new(serial_port_fd);
+	g_io_channel_set_close_on_unref(channel, FALSE);
+
+	callback_handler_in = g_io_add_watch_full(channel,
 	                      10,
 	                      G_IO_IN,
 	                      (GIOFunc)Lis_port,
 	                      NULL, NULL);
 
-	callback_handler_err = g_io_add_watch_full(g_io_channel_unix_new(serial_port_fd),
+	callback_handler_err = g_io_add_watch_full(channel,
 	                       10,
 	                       G_IO_ERR,
 	                       (GIOFunc)io_err,
 	                       NULL, NULL);
+
+	g_io_channel_unref(channel);
 
 	callback_activated = TRUE;
 

@@ -711,7 +711,10 @@ void
 shortcut_callback (gpointer number)
 {
   gint macro_index = GPOINTER_TO_INT (number);
-  /* Récupérer la chaîne de la macro */
+
+  if (macros == NULL || macros[macro_index].action == NULL)
+    return;
+
   gchar *macro_string = macros[macro_index].action;
 
   /* Parser et construire le buffer */
