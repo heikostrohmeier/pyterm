@@ -1136,11 +1136,21 @@ macro_set_arg (gint macro_index, gint arg_index, const gchar *value)
   if (arg_index >= n_args)
     return;
 
-  if (macros[macro_index].args == NULL)
+  if (macros[macro_index].args == NULL ||
+      (gint) g_strv_length (macros[macro_index].args) < n_args)
     {
-      macros[macro_index].args = g_new0 (gchar *, n_args + 1);
+      gchar **new_args = g_new0 (gchar *, n_args + 1);
       for (gint k = 0; k < n_args; k++)
-        macros[macro_index].args[k] = g_strdup ("");
+        {
+          if (macros[macro_index].args != NULL &&
+              k < (gint) g_strv_length (macros[macro_index].args) &&
+              macros[macro_index].args[k] != NULL)
+            new_args[k] = g_strdup (macros[macro_index].args[k]);
+          else
+            new_args[k] = g_strdup ("");
+        }
+      g_strfreev (macros[macro_index].args);
+      macros[macro_index].args = new_args;
     }
 
   g_free (macros[macro_index].args[arg_index]);
@@ -1715,8 +1725,16 @@ macros_file_load (const gchar *path)
                           if (sep5)
                             {
                               gchar *args_str = g_strndup (sep4 + 2, sep5 - (sep4 + 2));
-                              new_macros[i].args = g_strsplit (args_str, "|", -1);
+                              gchar **args_arr = g_strsplit (args_str, "|", -1);
                               g_free (args_str);
+                              gint n_fmt = macro_count_format_args (new_macros[i].action);
+                              if (n_fmt > 0 && (gint) g_strv_length (args_arr) == n_fmt)
+                                new_macros[i].args = args_arr;
+                              else
+                                {
+                                  g_strfreev (args_arr);
+                                  new_macros[i].args = NULL;
+                                }
 
                               gchar *sep6 = strstr (sep5 + 2, "::");
                               if (sep6)
@@ -1736,7 +1754,15 @@ macros_file_load (const gchar *path)
                             }
                           else
                             {
-                              new_macros[i].args = g_strsplit (sep4 + 2, "|", -1);
+                              gchar **args_arr = g_strsplit (sep4 + 2, "|", -1);
+                              gint n_fmt = macro_count_format_args (new_macros[i].action);
+                              if (n_fmt > 0 && (gint) g_strv_length (args_arr) == n_fmt)
+                                new_macros[i].args = args_arr;
+                              else
+                                {
+                                  g_strfreev (args_arr);
+                                  new_macros[i].args = NULL;
+                                }
                               new_macros[i].polling_enabled = FALSE;
                               new_macros[i].polling_period_ms = 1000;
                             }
