@@ -35,6 +35,7 @@
 #include "interface.h"
 #include "serial.h"
 #include "buffer.h"
+#include "transport.h"
 
 #include <config.h>
 #include <glib/gi18n.h>
@@ -261,7 +262,7 @@ void add_input(void)
 	if(input_running == FALSE)
 	{
 		input_running = TRUE;
-		callback_handler = g_io_add_watch_full(g_io_channel_unix_new(serial_port_fd),
+		callback_handler = g_io_add_watch_full(g_io_channel_unix_new(transport_get_fd()),
 		                                       10,
 		                                       G_IO_OUT,
 		                                       (GIOFunc)ecriture,

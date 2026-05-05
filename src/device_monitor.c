@@ -65,6 +65,8 @@ void event_udev(GUdevClient *client, const gchar *action, GUdevDevice *device)
 
 extern void device_monitor_start(void)
 {
+	if(config.transport_type != TRANSPORT_SERIAL)
+		return;
 
 	const gchar *const subsystems[] = {NULL, NULL};
 

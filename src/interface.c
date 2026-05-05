@@ -1956,6 +1956,9 @@ gboolean control_signals_read(void)
 {
 	int state;
 
+	if(config.transport_type != TRANSPORT_SERIAL)
+		return TRUE;
+
 	state = lis_sig();
 	if(state >= 0)
 		show_control_signals(state);

@@ -55,6 +55,9 @@ void display_help(void)
 	i18n_printf(_("--echo or -e: switch on local echo\n"));
 	i18n_printf(_("--disable-port-lock or -L: does not lock serial port. Allows to send to serial port from different terminals\n"));
 	i18n_printf(_("                      Note: incoming data are displayed randomly on only one terminal\n"));
+	i18n_printf(_("--transport <serial|tcp-client|tcp-server> or -T: transport type\n"));
+	i18n_printf(_("--host <hostname> or -H: TCP host\n"));
+	i18n_printf(_("--tcp-port <port> or -P: TCP port\n"));
 	i18n_printf("\n");
 }
 
@@ -80,6 +83,9 @@ int read_command_line(int argc, char **argv)
 		{"rts_time_before", 1, 0, 'x'},
 		{"rts_time_after", 1, 0, 'y'},
 		{"config", 1, 0, 'c'},
+		{"transport", 1, 0, 'T'},
+		{"host", 1, 0, 'H'},
+		{"tcp-port", 1, 0, 'P'},
 		{0, 0, 0, 0}
 	};
 
@@ -88,7 +94,7 @@ int read_command_line(int argc, char **argv)
 
 	while(1)
 	{
-		c = getopt_long (argc, argv, "s:a:t:b:f:p:w:d:r:heLc:x:y:", long_options, &option_index);
+		c = getopt_long (argc, argv, "s:a:t:b:f:p:w:d:r:heLc:x:y:T:H:P:", long_options, &option_index);
 
 		if(c == -1)
 			break;
@@ -157,6 +163,21 @@ int read_command_line(int argc, char **argv)
 
 		case 'y':
 			config.rs485_rts_time_after_transmit = atoi(optarg);
+			break;
+
+		case 'T':
+			if(!strcmp(optarg, "tcp-client"))
+				config.transport_type = TRANSPORT_TCP_CLIENT;
+			else if(!strcmp(optarg, "tcp-server"))
+				config.transport_type = TRANSPORT_TCP_SERVER;
+			break;
+
+		case 'H':
+			g_strlcpy(config.socket_host, optarg, sizeof(config.socket_host));
+			break;
+
+		case 'P':
+			g_strlcpy(config.socket_port, optarg, sizeof(config.socket_port));
 			break;
 
 		case 'h':

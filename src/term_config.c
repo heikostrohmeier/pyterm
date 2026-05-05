@@ -92,6 +92,9 @@ gfloat *background_blue;
 gfloat *background_green;
 gfloat *background_alpha;
 gchar **macros_file;
+gint *transport_type_cfg;
+gchar **socket_host;
+gchar **socket_port;
 
 
 cfgStruct cfg[] =
@@ -127,6 +130,9 @@ cfgStruct cfg[] =
 	{"term_background_green", CFG_FLOAT, &background_green},
 	{"term_background_alpha", CFG_FLOAT, &background_alpha},
 	{"macros_file", CFG_STRING, &macros_file},
+	{"transport_type", CFG_INT, &transport_type_cfg},
+	{"socket_host", CFG_STRING, &socket_host},
+	{"socket_port", CFG_STRING, &socket_port},
 	{NULL, CFG_END, NULL}
 };
 
@@ -139,6 +145,7 @@ display_config_t term_conf;
 GtkWidget *Entry;
 
 gint Grise_Degrise(GtkWidget *bouton, gpointer pointeur);
+void transport_toggle_cb(GtkWidget *combo, gpointer user_data);
 void read_font_button(GtkFontButton *fontButton);
 void Hard_default_configuration(void);
 void Copy_configuration(int);
@@ -436,9 +443,10 @@ void Config_Port_Fenetre(GtkAction *action, gpointer data)
 	GtkWidget *Table, *Label, *Bouton_OK, *Bouton_annule,
 	          *Combo, *Dialogue, *Frame, *CheckBouton,
 	          *Spin, *Expander, *ExpanderVbox,
-	       	  *content_area;
+	       	  *content_area, *serial_box, *tcp_frame,
+	          *TransportCombo;
 
-	static GtkWidget *Combos[10];
+	static GtkWidget *Combos[13];
 	GtkAdjustment *adj;
 	gchar *string;
 	char *prev;
@@ -472,8 +480,67 @@ void Config_Port_Fenetre(GtkAction *action, gpointer data)
 	gtk_window_set_resizable(GTK_WINDOW(Dialogue), FALSE);
 	gtk_container_set_border_width(GTK_CONTAINER(content_area), 5);
 
-	Frame = gtk_frame_new(_("Serial port"));
+	/* --- Transport type selector --- */
+	Frame = gtk_frame_new(_("Transport"));
 	gtk_box_pack_start(GTK_BOX(content_area), Frame, FALSE, TRUE, 5);
+
+	Table = gtk_grid_new();
+	gtk_grid_set_row_spacing(GTK_GRID(Table), 5);
+	gtk_grid_set_column_spacing(GTK_GRID(Table), 5);
+	gtk_container_add(GTK_CONTAINER(Frame), Table);
+
+	Label = gtk_label_new(_("Type:"));
+	gtk_grid_attach(GTK_GRID(Table), Label, 0, 0, 1, 1);
+
+	TransportCombo = gtk_combo_box_text_new();
+	gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(TransportCombo), _("Serial"));
+	gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(TransportCombo), _("TCP Client"));
+	gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(TransportCombo), _("TCP Server"));
+	gtk_combo_box_set_active(GTK_COMBO_BOX(TransportCombo), config.transport_type);
+	gtk_grid_attach(GTK_GRID(Table), TransportCombo, 1, 0, 1, 1);
+	Combos[10] = TransportCombo;
+
+	/* --- TCP Frame --- */
+	tcp_frame = gtk_frame_new(_("TCP"));
+	gtk_box_pack_start(GTK_BOX(content_area), tcp_frame, FALSE, TRUE, 5);
+
+	Table = gtk_grid_new();
+	gtk_grid_set_row_spacing(GTK_GRID(Table), 5);
+	gtk_grid_set_column_spacing(GTK_GRID(Table), 5);
+	gtk_container_add(GTK_CONTAINER(tcp_frame), Table);
+
+	Label = gtk_label_new(_("Host:"));
+	gtk_grid_attach(GTK_GRID(Table), Label, 0, 0, 1, 1);
+	Label = gtk_label_new(_("Port:"));
+	gtk_grid_attach(GTK_GRID(Table), Label, 0, 1, 1, 1);
+
+	GtkWidget *host_entry = gtk_entry_new();
+	gtk_widget_set_hexpand(host_entry, TRUE);
+	if(config.socket_host[0] != '\0')
+		gtk_entry_set_text(GTK_ENTRY(host_entry), config.socket_host);
+	else
+		gtk_entry_set_text(GTK_ENTRY(host_entry), "localhost");
+	gtk_grid_attach(GTK_GRID(Table), host_entry, 1, 0, 1, 1);
+	Combos[11] = host_entry;
+
+	GtkWidget *port_entry = gtk_entry_new();
+	gtk_widget_set_hexpand(port_entry, TRUE);
+	gtk_entry_set_input_purpose(GTK_ENTRY(port_entry), GTK_INPUT_PURPOSE_DIGITS);
+	if(config.socket_port[0] != '\0')
+		gtk_entry_set_text(GTK_ENTRY(port_entry), config.socket_port);
+	else
+		gtk_entry_set_text(GTK_ENTRY(port_entry), "2323");
+	g_signal_connect(GTK_ENTRY(port_entry), "insert-text",
+	                 G_CALLBACK(check_text_input), isdigit);
+	gtk_grid_attach(GTK_GRID(Table), port_entry, 1, 1, 1, 1);
+	Combos[12] = port_entry;
+
+	/* --- Serial port box --- */
+	serial_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+	gtk_box_pack_start(GTK_BOX(content_area), serial_box, FALSE, TRUE, 5);
+
+	Frame = gtk_frame_new(_("Serial port"));
+	gtk_box_pack_start(GTK_BOX(serial_box), Frame, FALSE, TRUE, 5);
 
 	Table = gtk_grid_new();
 	gtk_grid_set_row_spacing(GTK_GRID(Table), 5);
@@ -487,14 +554,12 @@ void Config_Port_Fenetre(GtkAction *action, gpointer data)
 	Label = gtk_label_new(_("Parity:"));
 	gtk_grid_attach(GTK_GRID(Table), Label, 2, 0, 1, 1);
 
-	// create the devices combo box, and add device strings
 	Combo = gtk_combo_box_text_new_with_entry();
 
 	prev = "";
 	for (i = 0; i < ports->len; i++)
 	{
 		char *curr = ports->pdata[i];
-		/* Duplicate entries are possible but will be adjacent */
 		if (strcmp(prev, curr))
 			gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(Combo), curr);
 		prev = curr;
@@ -503,20 +568,16 @@ void Config_Port_Fenetre(GtkAction *action, gpointer data)
 		g_free(ports->pdata[i]);
 	g_ptr_array_free(ports, TRUE);
 
-	// try to restore last selected port, if any
 	if(config.port[0] != '\0')
 	{
 		GtkWidget *tmp_entry;
 		tmp_entry = gtk_bin_get_child(GTK_BIN(Combo));
-
 		gtk_entry_set_text(GTK_ENTRY(tmp_entry), config.port);
-
 	}
 	else
 	{
 		gtk_combo_box_set_active(GTK_COMBO_BOX(Combo), 0);
 	}
-
 
 	gtk_widget_set_hexpand(Combo, TRUE);
 	gtk_widget_set_vexpand(Combo, TRUE);
@@ -542,7 +603,6 @@ void Config_Port_Fenetre(GtkAction *action, gpointer data)
 
 	if (speed_index < 0)
 	{
-		/* Custom baud rate */
 		string = g_strdup_printf("%u", config.vitesse);
 		gtk_entry_set_text(GTK_ENTRY(gtk_bin_get_child (GTK_BIN (Combo))), string);
 		g_free(string);
@@ -550,7 +610,6 @@ void Config_Port_Fenetre(GtkAction *action, gpointer data)
 		gtk_combo_box_set_active(GTK_COMBO_BOX(Combo), speed_index);
 	}
 
-	//validate input text (digits only)
 	g_signal_connect(GTK_ENTRY(gtk_bin_get_child (GTK_BIN (Combo))),
 			 "insert-text",
 			 G_CALLBACK(check_text_input), isdigit);
@@ -642,11 +701,11 @@ void Config_Port_Fenetre(GtkAction *action, gpointer data)
 	gtk_grid_attach(GTK_GRID(Table), Combo, 2, 3, 1, 1);
 	Combos[5] = Combo;
 
-	/* create an expander widget to hide the 'Advanced features' */
+	/* Advanced expander */
 	Expander = gtk_expander_new_with_mnemonic(_("Advanced Configuration Options"));
 	ExpanderVbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
 	gtk_container_add(GTK_CONTAINER(Expander), ExpanderVbox);
-	gtk_container_add(GTK_CONTAINER(content_area), Expander);
+	gtk_box_pack_start(GTK_BOX(serial_box), Expander, FALSE, TRUE, 5);
 
 	Frame = gtk_frame_new(_("ASCII file transfer"));
 	gtk_container_add(GTK_CONTAINER(ExpanderVbox), Frame);
@@ -689,9 +748,7 @@ void Config_Port_Fenetre(GtkAction *action, gpointer data)
 	gtk_grid_attach(GTK_GRID(Table), CheckBouton, 0, 1, 1, 1);
 	Combos[7] = CheckBouton;
 
-
 	Frame = gtk_frame_new(_("RS-485 half-duplex parameters (RTS signal used to send)"));
-
 	gtk_container_add(GTK_CONTAINER(ExpanderVbox), Frame);
 
 	Table = gtk_grid_new();
@@ -722,6 +779,10 @@ void Config_Port_Fenetre(GtkAction *action, gpointer data)
 	gtk_grid_attach(GTK_GRID(Table), Spin, 1, 1, 1, 1);
 	Combos[9] = Spin;
 
+	/* Toggle visibility based on transport type */
+	g_object_set_data(G_OBJECT(TransportCombo), "serial-box", serial_box);
+	g_object_set_data(G_OBJECT(TransportCombo), "tcp-frame", tcp_frame);
+	g_signal_connect(TransportCombo, "changed", G_CALLBACK(transport_toggle_cb), NULL);
 
 	Bouton_OK = gtk_button_new_with_label(_("OK"));
 	g_signal_connect(GTK_WIDGET(Bouton_OK), "clicked", G_CALLBACK(Lis_Config), (gpointer)Combos);
@@ -732,60 +793,84 @@ void Config_Port_Fenetre(GtkAction *action, gpointer data)
 	gtk_dialog_add_action_widget(GTK_DIALOG(Dialogue), Bouton_annule, GTK_RESPONSE_REJECT);
 
 	gtk_widget_show_all(Dialogue);
+	transport_toggle_cb(TransportCombo, NULL);
+}
+
+void transport_toggle_cb(GtkWidget *combo, gpointer user_data)
+{
+	(void)user_data;
+	GtkWidget *serial_box = g_object_get_data(G_OBJECT(combo), "serial-box");
+	GtkWidget *tcp_frame = g_object_get_data(G_OBJECT(combo), "tcp-frame");
+	gint type = gtk_combo_box_get_active(GTK_COMBO_BOX(combo));
+
+	gtk_widget_set_visible(serial_box, type == TRANSPORT_SERIAL);
+	gtk_widget_set_visible(tcp_frame, type != TRANSPORT_SERIAL);
 }
 
 gint Lis_Config(GtkWidget *bouton, GtkWidget **Combos)
 {
 	gchar *message;
 
-	message = gtk_combo_box_text_get_active_text(GTK_COMBO_BOX_TEXT(Combos[0]));
-	g_strlcpy(config.port, message, sizeof(config.port));
-	g_free(message);
+	config.transport_type = gtk_combo_box_get_active(GTK_COMBO_BOX(Combos[10]));
 
-	message = gtk_combo_box_text_get_active_text(GTK_COMBO_BOX_TEXT(Combos[1]));
-	config.vitesse = atoi(message);
-	g_free(message);
-
-	message = gtk_combo_box_text_get_active_text(GTK_COMBO_BOX_TEXT(Combos[3]));
-	config.bits = atoi(message);
-	g_free(message);
-
-	config.delai = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(Combos[6]));
-	config.rs485_rts_time_before_transmit = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(Combos[8]));
-	config.rs485_rts_time_after_transmit = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(Combos[9]));
-
-
-	message = gtk_combo_box_text_get_active_text(GTK_COMBO_BOX_TEXT(Combos[2]));
-	if(!strcmp(message, "odd"))
-		config.parite = 1;
-	else if(!strcmp(message, "even"))
-		config.parite = 2;
-	else
-		config.parite = 0;
-	g_free(message);
-
-	message = gtk_combo_box_text_get_active_text(GTK_COMBO_BOX_TEXT(Combos[4]));
-	config.stops = atoi(message);
-	g_free(message);
-
-	message = gtk_combo_box_text_get_active_text(GTK_COMBO_BOX_TEXT(Combos[5]));
-	if(!strcmp(message, "Xon/Xoff"))
-		config.flux = 1;
-	else if(!strcmp(message, "RTS/CTS"))
-		config.flux = 2;
-	else if(!strncmp(message, "RS485",5))
-		config.flux = 3;
-	else
-		config.flux = 0;
-	g_free(message);
-
-	if(gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(Combos[7])))
+	if(config.transport_type == TRANSPORT_SERIAL)
 	{
-		config.car = *gtk_entry_get_text(GTK_ENTRY(Entry));
-		config.delai = 0;
+		message = gtk_combo_box_text_get_active_text(GTK_COMBO_BOX_TEXT(Combos[0]));
+		g_strlcpy(config.port, message, sizeof(config.port));
+		g_free(message);
+
+		message = gtk_combo_box_text_get_active_text(GTK_COMBO_BOX_TEXT(Combos[1]));
+		config.vitesse = atoi(message);
+		g_free(message);
+
+		message = gtk_combo_box_text_get_active_text(GTK_COMBO_BOX_TEXT(Combos[3]));
+		config.bits = atoi(message);
+		g_free(message);
+
+		config.delai = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(Combos[6]));
+		config.rs485_rts_time_before_transmit = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(Combos[8]));
+		config.rs485_rts_time_after_transmit = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(Combos[9]));
+
+		message = gtk_combo_box_text_get_active_text(GTK_COMBO_BOX_TEXT(Combos[2]));
+		if(!strcmp(message, "odd"))
+			config.parite = 1;
+		else if(!strcmp(message, "even"))
+			config.parite = 2;
+		else
+			config.parite = 0;
+		g_free(message);
+
+		message = gtk_combo_box_text_get_active_text(GTK_COMBO_BOX_TEXT(Combos[4]));
+		config.stops = atoi(message);
+		g_free(message);
+
+		message = gtk_combo_box_text_get_active_text(GTK_COMBO_BOX_TEXT(Combos[5]));
+		if(!strcmp(message, "Xon/Xoff"))
+			config.flux = 1;
+		else if(!strcmp(message, "RTS/CTS"))
+			config.flux = 2;
+		else if(!strncmp(message, "RS485",5))
+			config.flux = 3;
+		else
+			config.flux = 0;
+		g_free(message);
+
+		if(gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(Combos[7])))
+		{
+			config.car = *gtk_entry_get_text(GTK_ENTRY(Entry));
+			config.delai = 0;
+		}
+		else
+			config.car = -1;
 	}
 	else
-		config.car = -1;
+	{
+		const gchar *host = gtk_entry_get_text(GTK_ENTRY(Combos[11]));
+		g_strlcpy(config.socket_host, host, sizeof(config.socket_host));
+
+		const gchar *port = gtk_entry_get_text(GTK_ENTRY(Combos[12]));
+		g_strlcpy(config.socket_port, port, sizeof(config.socket_port));
+	}
 
 	Config_port();
 	ConfigFlags();
@@ -797,7 +882,6 @@ gint Lis_Config(GtkWidget *bouton, GtkWidget **Combos)
 
 	return FALSE;
 }
-
 gint Grise_Degrise(GtkWidget *bouton, gpointer pointeur)
 {
 	if(gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(bouton)))
@@ -1312,12 +1396,27 @@ gint Load_configuration_from_file(gchar *config_name)
 				else
 					config.esc_clear_screen = FALSE;
 
-				if(timestamp[i] != -1)
-					config.timestamp = (gboolean)timestamp[i];
-				else
-					config.timestamp = FALSE;
+			if(timestamp[i] != -1)
+				config.timestamp = (gboolean)timestamp[i];
+			else
+				config.timestamp = FALSE;
 
-			g_free(term_conf.font);
+			if(transport_type_cfg[i] != 0)
+				config.transport_type = transport_type_cfg[i];
+			else
+				config.transport_type = TRANSPORT_SERIAL;
+
+			if(socket_host[i] != NULL)
+				g_strlcpy(config.socket_host, socket_host[i], sizeof(config.socket_host));
+			else
+				config.socket_host[0] = '\0';
+
+			if(socket_port[i] != NULL)
+				g_strlcpy(config.socket_port, socket_port[i], sizeof(config.socket_port));
+			else
+				config.socket_port[0] = '\0';
+
+		g_free(term_conf.font);
 			term_conf.font = (font[i] != NULL) ? g_strdup(font[i]) : g_strdup(DEFAULT_FONT);
 
 			/* Restaurer le chemin du fichier macros */
@@ -1489,6 +1588,9 @@ void Hard_default_configuration(void)
 	config.esc_clear_screen = FALSE;
 	config.timestamp = FALSE;
 	config.disable_port_lock = FALSE;
+	config.transport_type = TRANSPORT_SERIAL;
+	config.socket_host[0] = '\0';
+	config.socket_port[0] = '\0';
 
 	term_conf.font = g_strdup_printf(DEFAULT_FONT);
 
@@ -1672,6 +1774,13 @@ void Copy_configuration(int pos)
 	string = g_strdup_printf("%f", term_conf.background_color.alpha);
 	cfgStoreValue(cfg, "term_background_alpha", string, CFG_INI, pos);
 	g_free(string);
+
+	string = g_strdup_printf("%d", config.transport_type);
+	cfgStoreValue(cfg, "transport_type", string, CFG_INI, pos);
+	g_free(string);
+
+	cfgStoreValue(cfg, "socket_host", config.socket_host, CFG_INI, pos);
+	cfgStoreValue(cfg, "socket_port", config.socket_port, CFG_INI, pos);
 
 	const gchar *mfp = macros_file_get_path();
 	if (mfp)

@@ -34,6 +34,8 @@ sources = [
 	'serial.h',
 	'term_config.c',
 	'term_config.h',
+	'transport.c',
+	'transport.h',
 	'user_signals.c',
 	'user_signals.h',
 	gresources

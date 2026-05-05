@@ -15,6 +15,8 @@
 #ifndef TERM_CONFIG_H_
 #define TERM_CONFIG_H_
 
+#include "transport.h"
+
 void config_file_init(void);
 void ConfigFlags(void);
 void Config_Port_Fenetre(GtkAction *action, gpointer data);
@@ -39,6 +41,9 @@ void clear_scrollback(void);
 struct configuration_port
 {
 	gchar port[1024];
+	gint transport_type;         // TRANSPORT_SERIAL, TRANSPORT_TCP_CLIENT, TRANSPORT_TCP_SERVER
+	gchar socket_host[256];
+	gchar socket_port[16];
 	guint vitesse;               // baud rate
 	gint bits;                   // 5 - 6 - 7 - 8
 	gint stops;                  // 1 - 2
