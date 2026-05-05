@@ -941,7 +941,7 @@ void rebuild_macro_buttons(void)
 						g_signal_connect(button, "button-press-event",
 						                 G_CALLBACK(on_macro_button_right_click),
 						                 GINT_TO_POINTER(i));
-						gtk_box_pack_start(GTK_BOX(hbox), button, FALSE, FALSE, 0);
+						gtk_box_pack_start(GTK_BOX(hbox), button, TRUE, TRUE, 0);
 					}
 					gtk_box_pack_start(GTK_BOX(vbox), hbox, FALSE, FALSE, 2);
 					macro_arg_infos_free(arg_infos, n_args);
@@ -967,7 +967,7 @@ void rebuild_macro_buttons(void)
 			                 G_CALLBACK(on_macro_button_right_click),
 			                 GINT_TO_POINTER(i));
 			gtk_widget_set_tooltip_text(button, tooltip);
-			gtk_box_pack_start(GTK_BOX(hbox), button, FALSE, FALSE, 0);
+			gtk_box_pack_start(GTK_BOX(hbox), button, TRUE, TRUE, 0);
 
 				for (gint k = 0; k < n_args; k++)
 				{
@@ -1023,7 +1023,7 @@ void rebuild_macro_buttons(void)
 							}
 						}
 						gtk_combo_box_set_active(GTK_COMBO_BOX(widget), active_idx);
-						gtk_widget_set_size_request(widget, 70, -1);
+						//gtk_widget_set_size_request(widget, 70, -1);
 					}
 					else
 					{
@@ -1034,7 +1034,7 @@ void rebuild_macro_buttons(void)
 						    (arg_infos[k].type == 's')                         ? "text" :
 						    (strchr("feEgGaA", arg_infos[k].type) != NULL)     ? "0.0"  : "0";
 						gtk_entry_set_placeholder_text(GTK_ENTRY(widget), placeholder);
-						gtk_entry_set_width_chars(GTK_ENTRY(widget), 6);
+						//gtk_entry_set_width_chars(GTK_ENTRY(widget), 6);
 
 						if (macros[i].args != NULL && k < (gint)g_strv_length(macros[i].args))
 							gtk_entry_set_text(GTK_ENTRY(widget), macros[i].args[k]);
@@ -1066,10 +1066,9 @@ void rebuild_macro_buttons(void)
 					}
 					else
 					{
-						/* Pas de label : centrer verticalement dans la hauteur allouée */
-						gtk_box_pack_start(GTK_BOX(arg_cell), widget, TRUE, FALSE, 0);
+						gtk_box_pack_start(GTK_BOX(arg_cell), widget, TRUE, TRUE, 0);
 					}
-					gtk_box_pack_start(GTK_BOX(hbox), arg_cell, FALSE, FALSE, 0);
+					gtk_box_pack_start(GTK_BOX(hbox), arg_cell, TRUE, TRUE, 0);
 				}
 				macro_arg_infos_free(arg_infos, n_args);
 				gtk_box_pack_start(GTK_BOX(vbox), hbox, FALSE, FALSE, 2);
@@ -1090,7 +1089,7 @@ void rebuild_macro_buttons(void)
 				                 GINT_TO_POINTER(i));
 				gtk_widget_set_tooltip_text(button, tooltip);
 				GtkWidget *hbox_simple = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 2);
-				gtk_box_pack_start(GTK_BOX(hbox_simple), button, FALSE, FALSE, 0);
+				gtk_box_pack_start(GTK_BOX(hbox_simple), button, TRUE, TRUE, 0);
 				gtk_box_pack_start(GTK_BOX(vbox), hbox_simple, FALSE, FALSE, 2);
 			}
 		}
