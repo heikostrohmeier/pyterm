@@ -24,6 +24,8 @@
 #include <netinet/in.h>
 #include <netdb.h>
 #include <arpa/inet.h>
+#include <sys/prctl.h>
+#include <linux/capability.h>
 
 #include "term_config.h"
 #include "serial.h"
@@ -368,18 +370,14 @@ static gboolean tcp_connect_complete_cb(GIOChannel *src, GIOCondition cond, gpoi
 		close(transport_fd);
 		transport_fd = -1;
 
-		if(reconnect_in_progress)
+		if(!reconnect_in_progress)
 		{
-			reconnect_in_progress = FALSE;
-			transport_schedule_reconnect();
-			return FALSE;
+			gchar *msg = g_strdup_printf(_("Cannot connect to %s:%s: %s\n"),
+			                              config.socket_host, config.socket_port,
+			                              err ? strerror(err) : strerror(errno));
+			show_message(msg, MSG_ERR);
+			g_free(msg);
 		}
-
-		gchar *msg = g_strdup_printf(_("Cannot connect to %s:%s: %s\n"),
-		                              config.socket_host, config.socket_port,
-		                              err ? strerror(err) : strerror(errno));
-		show_message(msg, MSG_ERR);
-		g_free(msg);
 
 		transport_schedule_reconnect();
 		return FALSE;
@@ -418,6 +416,7 @@ static gboolean transport_open_tcp_client(void)
 			show_message(msg, MSG_ERR);
 			g_free(msg);
 		}
+		transport_schedule_reconnect();
 		return FALSE;
 	}
 
@@ -454,6 +453,7 @@ static gboolean transport_open_tcp_client(void)
 			show_message(msg, MSG_ERR);
 			g_free(msg);
 		}
+		transport_schedule_reconnect();
 		return FALSE;
 	}
 
@@ -472,6 +472,15 @@ static gboolean tcp_accept_cb(GIOChannel *src, GIOCondition cond, gpointer data)
 {
 	(void)cond;
 
+	int optval;
+	socklen_t optlen = sizeof(optval);
+	if(getsockopt(listen_fd, SOL_SOCKET, SO_ACCEPTCONN, &optval, &optlen) < 0 || !optval)
+	{
+		g_source_remove(listen_handler_id);
+		listen_handler_id = 0;
+		return FALSE;
+	}
+
 	int new_fd = accept(listen_fd, NULL, NULL);
 	if(new_fd < 0)
 	{
@@ -481,6 +490,15 @@ static gboolean tcp_accept_cb(GIOChannel *src, GIOCondition cond, gpointer data)
 			                              strerror(errno));
 			show_message(msg, MSG_ERR);
 			g_free(msg);
+
+			if(errno == EINVAL || errno == EBADF)
+			{
+				g_source_remove(listen_handler_id);
+				listen_handler_id = 0;
+				close(listen_fd);
+				listen_fd = -1;
+				return FALSE;
+			}
 		}
 		return TRUE;
 	}
@@ -560,9 +578,17 @@ static gboolean transport_open_tcp_server(void)
 
 	if(bind(fd, res->ai_addr, res->ai_addrlen) < 0)
 	{
+		if(errno == EACCES && atoi(config.socket_port) > 0 && atoi(config.socket_port) < 1024)
+		{
+			prctl(PR_CAP_AMBIENT, PR_CAP_AMBIENT_RAISE,
+			      CAP_NET_BIND_SERVICE, 0, 0);
+			if(bind(fd, res->ai_addr, res->ai_addrlen) == 0)
+				goto bound;
+		}
+
 		gchar *extra = "";
-		if(errno == EACCES && atoi(config.socket_port) < 1024)
-			extra = _(" (try a port > 1024)");
+		if(errno == EACCES && atoi(config.socket_port) > 0 && atoi(config.socket_port) < 1024)
+			extra = _("\nUse: sudo setcap cap_net_bind_service=+ep gtkterm");
 		msg = g_strdup_printf(_("Cannot bind to %s:%s: %s%s\n"),
 		                      config.socket_host, config.socket_port,
 		                      strerror(errno), extra);
@@ -572,6 +598,7 @@ static gboolean transport_open_tcp_server(void)
 		freeaddrinfo(res);
 		return FALSE;
 	}
+bound:
 
 	freeaddrinfo(res);
 
@@ -607,6 +634,7 @@ static gboolean reconnect_timer_cb(gpointer data)
 {
 	(void)data;
 	reconnect_timer_id = 0;
+	reconnect_in_progress = TRUE;
 	transport_open();
 	if(transport_fd == -1 && config.autoreconnect_enabled
 	   && config.transport_type != TRANSPORT_TCP_SERVER)
@@ -645,24 +673,17 @@ void transport_close(void)
 		connect_watch_id = 0;
 	}
 
-	reconnect_in_progress = FALSE;
+	transport_close_client();
 
-	if(config.transport_type == TRANSPORT_TCP_SERVER)
+	if(listen_fd != -1)
 	{
-		transport_close_client();
-
-		if(listen_fd != -1)
+		if(listen_handler_id != 0)
 		{
-			if(listen_handler_id != 0)
-			{
-				g_source_remove(listen_handler_id);
-				listen_handler_id = 0;
-			}
-			close(listen_fd);
-			listen_fd = -1;
+			g_source_remove(listen_handler_id);
+			listen_handler_id = 0;
 		}
-		transport_fd = -1;
-		return;
+		close(listen_fd);
+		listen_fd = -1;
 	}
 
 	if(transport_fd == -1)
