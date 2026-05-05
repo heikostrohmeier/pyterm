@@ -132,7 +132,6 @@ GtkWidget *search_bar_new(GtkWindow *parent, VteTerminal *terminal)
 	vte_terminal_search_set_wrap_around(term, TRUE);
 
 	searchBar = gtk_search_bar_new();
-	gtk_search_bar_connect_entry(GTK_SEARCH_BAR(searchBar), GTK_ENTRY(entry));
 	gtk_search_bar_set_search_mode(GTK_SEARCH_BAR(searchBar), FALSE);
 	gtk_search_bar_set_show_close_button(GTK_SEARCH_BAR(searchBar), TRUE);
 
@@ -141,6 +140,7 @@ GtkWidget *search_bar_new(GtkWindow *parent, VteTerminal *terminal)
 	gtk_container_add(GTK_CONTAINER(searchBar), box);
 
 	entry = gtk_search_entry_new();
+	gtk_search_bar_connect_entry(GTK_SEARCH_BAR(searchBar), GTK_ENTRY(entry));
 	gtk_entry_set_width_chars(GTK_ENTRY(entry), 30);
 	gtk_box_pack_start(GTK_BOX(box), entry, FALSE, FALSE, 0);
 	g_signal_connect(entry, "changed", G_CALLBACK(entry_changed_callback), NULL);

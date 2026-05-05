@@ -90,6 +90,15 @@ void send_raw_file(GtkAction *action, gpointer data)
 		gchar *msg;
 
 		fileName = gtk_file_chooser_get_filename(GTK_FILE_CHOOSER(file_select));
+		if (!fileName || strcmp(fileName, "") == 0)
+		{
+			msg = g_strdup_printf(_("File error\n"));
+			show_message(msg, MSG_ERR);
+			g_free(msg);
+			g_free(fileName);
+			gtk_widget_destroy(file_select);
+			return;
+		}
 
 		if(!g_file_test(fileName, G_FILE_TEST_IS_REGULAR))
 		{
@@ -114,6 +123,8 @@ void send_raw_file(GtkAction *action, gpointer data)
 			current_buffer_position = 0;
 			bytes_read = 0;
 			nb_car = lseek(Fichier, 0L, SEEK_END);
+			if (nb_car == (gint)-1)
+				nb_car = 0;
 			lseek(Fichier, 0L, SEEK_SET);
 
 			Window = gtk_dialog_new();
@@ -325,7 +336,7 @@ void save_raw_file(GtkAction *action, gpointer data)
 		gchar *msg;
 
 		fileName = gtk_file_chooser_get_filename(GTK_FILE_CHOOSER(file_select));
-		if ((!fileName || (strcmp(fileName, ""))) == 0)
+		if (!fileName || strcmp(fileName, "") == 0)
 		{
 			msg = g_strdup_printf(_("File error\n"));
 			show_message(msg, MSG_ERR);
@@ -376,7 +387,7 @@ void save_ascii_file(GtkAction *action, gpointer data)
 		gchar *msg;
 
 		fileName = gtk_file_chooser_get_filename(GTK_FILE_CHOOSER(file_select));
-		if ((!fileName || (strcmp(fileName, ""))) == 0)
+		if (!fileName || strcmp(fileName, "") == 0)
 		{
 			msg = g_strdup_printf(_("File error\n"));
 			show_message(msg, MSG_ERR);

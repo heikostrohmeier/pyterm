@@ -87,7 +87,6 @@ gboolean autoreconnect_on;
 gboolean crlfauto_on;
 gboolean esc_clear_screen_on;
 gboolean timestamp_on = 0;
-gboolean show_rxtx_on = FALSE;
 GtkWidget *StatusBar;
 GtkWidget *signals[6];
 static GtkWidget *Hex_Box;
@@ -99,6 +98,8 @@ GtkAccelGroup *shortcuts;
 GtkWidget *display = NULL;
 GtkWidget *macro_panel;
 GtkWidget *macro_notebook;
+static GtkWidget *macro_tab_flowbox;
+static GtkWidget *macro_stack;
 static GHashTable *hidden_macro_tabs;
 
 /* Polling state per macro */
@@ -136,7 +137,6 @@ static GSimpleAction *action_crlf_auto;
 static GSimpleAction *action_esc_clear_screen;
 static GSimpleAction *action_timestamp;
 static GSimpleAction *action_view_index;
-static GSimpleAction *action_view_show_rxtx;
 static GSimpleAction *action_view_send_hex;
 static GSimpleAction *action_view_macro_panel;
 
@@ -207,11 +207,9 @@ static void on_polling_period_changed(GtkWidget *entry, gpointer user_data);
 static gboolean polling_blink_callback(gpointer user_data);
 static void on_polling_mode_toggled(GtkCheckMenuItem *check_item, gpointer user_data);
 static void send_macro_by_index(gint macro_index);
+static void on_macro_tab_clicked(GtkToggleButton *btn, gpointer user_data);
 static void create_macro_panel(void);
 void rebuild_macro_buttons(void);
-void show_rxtx_toggled_callback(GSimpleAction *action, GVariant *parameter, gpointer data);
-void Set_show_rxtx(gboolean show);
-
 void set_saved_data(GtkWidget *widget, gboolean direction);
 void update_hex_history(GtkWidget *widget);
 gboolean on_key_press(GtkWidget *widget, GdkEventKey *event, gpointer user_data);
@@ -343,17 +341,6 @@ void timestamp_toggled_callback(GSimpleAction *action, GVariant *parameter, gpoi
 	config.timestamp = timestamp_on ? TRUE : FALSE;
 }
 
-void Set_show_rxtx(gboolean show)
-{
-	show_rxtx_on = show;
-	g_simple_action_set_state(action_view_show_rxtx, g_variant_new_boolean(show_rxtx_on));
-}
-
-void show_rxtx_toggled_callback(GSimpleAction *action, GVariant *parameter, gpointer data)
-{
-	show_rxtx_on = g_variant_get_boolean(parameter);
-	config.show_rxtx = show_rxtx_on ? TRUE : FALSE;
-}
 
 	void toggle_logging_pause_resume(gboolean currentlyLogging)
 {
@@ -798,7 +785,6 @@ static gboolean on_macro_arg_entry_focus_out(GtkWidget *entry, GdkEvent *event, 
 static void on_macro_arg_entry_activate(GtkWidget *entry, gpointer data)
 {
 	save_entry_arg(entry);
-	on_macro_arg_button_clicked(GTK_WIDGET(data), NULL);
 }
 
 static void on_combo_arg_changed(GtkComboBox *combo, gpointer data)
@@ -810,10 +796,15 @@ void rebuild_macro_buttons(void)
 	gint nb_macros = 0;
 	macro_t *macros = get_shortcuts(&nb_macros);
 
-	if (macro_notebook == NULL)
+	if (macro_tab_flowbox == NULL || macro_notebook == NULL)
 		return;
 
-	/* Supprimer toutes les pages existantes */
+	/* Supprimer tous les boutons-onglets et pages existants */
+	GList *old_tabs = gtk_container_get_children(GTK_CONTAINER(macro_tab_flowbox));
+	for (GList *c = old_tabs; c != NULL; c = c->next)
+		gtk_container_remove(GTK_CONTAINER(macro_tab_flowbox), GTK_WIDGET(c->data));
+	g_list_free(old_tabs);
+
 	while (gtk_notebook_get_n_pages(GTK_NOTEBOOK(macro_notebook)) > 0)
 		gtk_notebook_remove_page(GTK_NOTEBOOK(macro_notebook), 0);
 
@@ -854,8 +845,15 @@ void rebuild_macro_buttons(void)
 		gtk_widget_set_sensitive(lbl, FALSE);
 		gtk_box_pack_start(GTK_BOX(vbox), lbl, FALSE, FALSE, 10);
 		gtk_widget_show_all(vbox);
-		gtk_notebook_append_page(GTK_NOTEBOOK(macro_notebook), vbox,
-		                         gtk_label_new(_("General")));
+		gtk_notebook_append_page(GTK_NOTEBOOK(macro_notebook), vbox, NULL);
+
+		GtkWidget *tab_btn = gtk_toggle_button_new_with_label(_("General"));
+		gtk_button_set_relief(GTK_BUTTON(tab_btn), GTK_RELIEF_NONE);
+		gtk_style_context_add_class(gtk_widget_get_style_context(tab_btn), "macro-tab");
+		gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(tab_btn), TRUE);
+		gtk_widget_show(tab_btn);
+		gtk_container_add(GTK_CONTAINER(macro_tab_flowbox), tab_btn);
+		gtk_widget_show_all(macro_tab_flowbox);
 		return;
 	}
 
@@ -866,7 +864,7 @@ void rebuild_macro_buttons(void)
 
 		GtkWidget *scrolled = gtk_scrolled_window_new(NULL, NULL);
 		gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scrolled),
-		                               GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
+		                               GTK_POLICY_AUTOMATIC, GTK_POLICY_AUTOMATIC);
 		GtkWidget *vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 3);
 		gtk_container_set_border_width(GTK_CONTAINER(vbox), 5);
 		gtk_container_add(GTK_CONTAINER(scrolled), vbox);
@@ -913,6 +911,7 @@ void rebuild_macro_buttons(void)
 						                             macro_list_entry_display(list_idx, ei));
 					GtkWidget *button = gtk_button_new_with_label(label);
 					g_free(label);
+					gtk_style_context_add_class(gtk_widget_get_style_context(button), "macro-button");
 					g_object_set_data(G_OBJECT(button), "macro-index", GINT_TO_POINTER(i));
 
 					/* Store button reference for polling */
@@ -926,7 +925,7 @@ void rebuild_macro_buttons(void)
 						g_signal_connect(button, "button-press-event",
 						                 G_CALLBACK(on_macro_button_right_click),
 						                 GINT_TO_POINTER(i));
-						gtk_box_pack_start(GTK_BOX(hbox), button, FALSE, FALSE, 0);
+						gtk_box_pack_start(GTK_BOX(hbox), button, TRUE, TRUE, 0);
 					}
 					gtk_box_pack_start(GTK_BOX(vbox), hbox, FALSE, FALSE, 2);
 					macro_arg_infos_free(arg_infos, n_args);
@@ -935,6 +934,7 @@ void rebuild_macro_buttons(void)
 
 			GtkWidget *hbox   = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 2);
 			GtkWidget *button = gtk_button_new_with_label(macros[i].label);
+			gtk_style_context_add_class(gtk_widget_get_style_context(button), "macro-button");
 
 			/* Store button reference for polling */
 			g_hash_table_insert(macro_button_table, GINT_TO_POINTER(i), button);
@@ -952,7 +952,7 @@ void rebuild_macro_buttons(void)
 			                 G_CALLBACK(on_macro_button_right_click),
 			                 GINT_TO_POINTER(i));
 			gtk_widget_set_tooltip_text(button, tooltip);
-			gtk_box_pack_start(GTK_BOX(hbox), button, FALSE, FALSE, 0);
+			gtk_box_pack_start(GTK_BOX(hbox), button, TRUE, TRUE, 0);
 
 				for (gint k = 0; k < n_args; k++)
 				{
@@ -1008,7 +1008,7 @@ void rebuild_macro_buttons(void)
 							}
 						}
 						gtk_combo_box_set_active(GTK_COMBO_BOX(widget), active_idx);
-						gtk_widget_set_size_request(widget, 70, -1);
+						gtk_widget_set_size_request(widget, 50, -1);
 					}
 					else
 					{
@@ -1019,7 +1019,7 @@ void rebuild_macro_buttons(void)
 						    (arg_infos[k].type == 's')                         ? "text" :
 						    (strchr("feEgGaA", arg_infos[k].type) != NULL)     ? "0.0"  : "0";
 						gtk_entry_set_placeholder_text(GTK_ENTRY(widget), placeholder);
-						gtk_entry_set_width_chars(GTK_ENTRY(widget), 6);
+						gtk_entry_set_width_chars(GTK_ENTRY(widget), 4);
 
 						if (macros[i].args != NULL && k < (gint)g_strv_length(macros[i].args))
 							gtk_entry_set_text(GTK_ENTRY(widget), macros[i].args[k]);
@@ -1051,10 +1051,9 @@ void rebuild_macro_buttons(void)
 					}
 					else
 					{
-						/* Pas de label : centrer verticalement dans la hauteur allouée */
-						gtk_box_pack_start(GTK_BOX(arg_cell), widget, TRUE, FALSE, 0);
+						gtk_box_pack_start(GTK_BOX(arg_cell), widget, TRUE, TRUE, 0);
 					}
-					gtk_box_pack_start(GTK_BOX(hbox), arg_cell, FALSE, FALSE, 0);
+					gtk_box_pack_start(GTK_BOX(hbox), arg_cell, TRUE, TRUE, 0);
 				}
 				macro_arg_infos_free(arg_infos, n_args);
 				gtk_box_pack_start(GTK_BOX(vbox), hbox, FALSE, FALSE, 2);
@@ -1062,6 +1061,7 @@ void rebuild_macro_buttons(void)
 			else
 			{
 				GtkWidget *button = gtk_button_new_with_label(macros[i].label);
+				gtk_style_context_add_class(gtk_widget_get_style_context(button), "macro-button");
 
 				/* Store button reference for polling */
 				g_hash_table_insert(macro_button_table, GINT_TO_POINTER(i), button);
@@ -1075,15 +1075,33 @@ void rebuild_macro_buttons(void)
 				                 GINT_TO_POINTER(i));
 				gtk_widget_set_tooltip_text(button, tooltip);
 				GtkWidget *hbox_simple = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 2);
-				gtk_box_pack_start(GTK_BOX(hbox_simple), button, FALSE, FALSE, 0);
+				gtk_box_pack_start(GTK_BOX(hbox_simple), button, TRUE, TRUE, 0);
 				gtk_box_pack_start(GTK_BOX(vbox), hbox_simple, FALSE, FALSE, 2);
 			}
 		}
 
 		gtk_widget_show_all(scrolled);
-		gtk_notebook_append_page(GTK_NOTEBOOK(macro_notebook), scrolled,
-		                         gtk_label_new(tab_name));
+		gtk_notebook_append_page(GTK_NOTEBOOK(macro_notebook), scrolled, NULL);
+
+		GtkWidget *tab_btn = gtk_toggle_button_new_with_label(tab_name);
+		gtk_button_set_relief(GTK_BUTTON(tab_btn), GTK_RELIEF_NONE);
+		gtk_style_context_add_class(gtk_widget_get_style_context(tab_btn), "macro-tab");
+		g_signal_connect(tab_btn, "clicked", G_CALLBACK(on_macro_tab_clicked), NULL);
+		gtk_widget_show(tab_btn);
+		gtk_container_add(GTK_CONTAINER(macro_tab_flowbox), tab_btn);
 	}
+
+	/* Activer le premier onglet */
+	gtk_notebook_set_current_page(GTK_NOTEBOOK(macro_notebook), 0);
+	GList *fb_children = gtk_container_get_children(GTK_CONTAINER(macro_tab_flowbox));
+	if (fb_children != NULL)
+	{
+		GtkWidget *first_child = gtk_bin_get_child(GTK_BIN(fb_children->data));
+		if (GTK_IS_TOGGLE_BUTTON(first_child))
+			gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(first_child), TRUE);
+	}
+	g_list_free(fb_children);
+	gtk_widget_show_all(macro_tab_flowbox);
 
 	g_list_free(tab_names);
 
@@ -1092,6 +1110,41 @@ void rebuild_macro_buttons(void)
 	{
 		if (macros[i].polling_enabled)
 			restore_macro_polling(i, TRUE, macros[i].polling_period_ms);
+	}
+}
+
+static void on_macro_tab_clicked(GtkToggleButton *btn, gpointer user_data)
+{
+	/* Trouver l'index de ce bouton dans le FlowBox */
+	GList *fb_children = gtk_container_get_children(GTK_CONTAINER(macro_tab_flowbox));
+	gint page_index = 0;
+	gint idx = 0;
+	for (GList *c = fb_children; c != NULL; c = c->next, idx++)
+	{
+		GtkWidget *child = gtk_bin_get_child(GTK_BIN(c->data));
+		if (child == GTK_WIDGET(btn))
+		{
+			page_index = idx;
+		}
+		else if (GTK_IS_TOGGLE_BUTTON(child))
+		{
+			/* Bloquer le signal pour éviter la récursion : set_active émet "clicked" */
+			g_signal_handlers_block_by_func(child, on_macro_tab_clicked, NULL);
+			gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(child), FALSE);
+			g_signal_handlers_unblock_by_func(child, on_macro_tab_clicked, NULL);
+		}
+	}
+	g_list_free(fb_children);
+
+	/* Afficher la page correspondante dans le notebook */
+	gtk_notebook_set_current_page(GTK_NOTEBOOK(macro_notebook), page_index);
+
+	/* Empêcher de désactiver le bouton actif en recliquant dessus */
+	if (!gtk_toggle_button_get_active(btn))
+	{
+		g_signal_handlers_block_by_func(btn, on_macro_tab_clicked, NULL);
+		gtk_toggle_button_set_active(btn, TRUE);
+		g_signal_handlers_unblock_by_func(btn, on_macro_tab_clicked, NULL);
 	}
 }
 
@@ -1115,7 +1168,8 @@ static gboolean on_macro_notebook_button_press(GtkWidget *widget, GdkEventButton
 
 	GtkWidget *target = gtk_get_event_widget((GdkEvent *)event);
 	GtkWidget *btn = gtk_widget_get_ancestor(target, GTK_TYPE_BUTTON);
-	if (btn != NULL)
+	/* Ne pas bloquer le menu si c'est un bouton-onglet (macro-tab) */
+	if (btn != NULL && !gtk_style_context_has_class(gtk_widget_get_style_context(btn), "macro-tab"))
 		return FALSE;
 
 	gint nb_macros = 0;
@@ -1171,19 +1225,63 @@ static void create_macro_panel(void)
 	macro_polling_table = g_hash_table_new_full(g_direct_hash, g_direct_equal, NULL, (GDestroyNotify)free_polling_args);
 	macro_button_table = g_hash_table_new_full(g_direct_hash, g_direct_equal, NULL, NULL);
 
-	macro_notebook = gtk_notebook_new();
-	gtk_notebook_set_tab_pos(GTK_NOTEBOOK(macro_notebook), GTK_POS_TOP);
-	gtk_widget_set_size_request(macro_notebook, 170, -1);
-	g_signal_connect(macro_notebook, "button-press-event",
+	/* Conteneur principal du panneau latéral */
+	GtkWidget *panel_vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+	gtk_widget_set_size_request(panel_vbox, 170, -1);
+
+	/* Barre d'onglets wrappable */
+	macro_tab_flowbox = gtk_flow_box_new();
+	gtk_flow_box_set_min_children_per_line(GTK_FLOW_BOX(macro_tab_flowbox), 4);
+	gtk_flow_box_set_max_children_per_line(GTK_FLOW_BOX(macro_tab_flowbox), 100);
+	gtk_flow_box_set_selection_mode(GTK_FLOW_BOX(macro_tab_flowbox), GTK_SELECTION_NONE);
+	gtk_flow_box_set_homogeneous(GTK_FLOW_BOX(macro_tab_flowbox), TRUE);
+	gtk_flow_box_set_column_spacing(GTK_FLOW_BOX(macro_tab_flowbox), 0);
+	gtk_flow_box_set_row_spacing(GTK_FLOW_BOX(macro_tab_flowbox), 0);
+	gtk_style_context_add_class(gtk_widget_get_style_context(macro_tab_flowbox), "macro-tab-bar");
+	g_signal_connect(macro_tab_flowbox, "button-press-event",
 	                 G_CALLBACK(on_macro_notebook_button_press), NULL);
 
-	macro_panel = macro_notebook;
+	/* Notebook natif avec onglets masqués — donne le look natif à la zone de contenu */
+	macro_notebook = gtk_notebook_new();
+	gtk_notebook_set_show_tabs(GTK_NOTEBOOK(macro_notebook), FALSE);
+	gtk_notebook_set_show_border(GTK_NOTEBOOK(macro_notebook), TRUE);
+	macro_stack = NULL;
 
-	/* Initialize CSS provider for polling blink */
+	gtk_box_pack_start(GTK_BOX(panel_vbox), macro_tab_flowbox, FALSE, FALSE, 0);
+	gtk_box_pack_start(GTK_BOX(panel_vbox), macro_notebook, TRUE, TRUE, 0);
+
+	macro_panel = panel_vbox;
+
+	/* CSS : polling blink + apparence onglets */
 	polling_css_provider = gtk_css_provider_new();
 	gtk_css_provider_load_from_data(polling_css_provider,
-	    "button.polling-blink { background-color: #abf573; background-image: none; color: black; border-color: #00cc00; }\n",
+	    /* Polling blink */
+	    "button.polling-blink { background-color: #abf573; background-image: none;"
+	    "  color: black; border-color: #00cc00; }\n"
+	    /* Barre d'onglets */
+	    ".macro-tab-bar { background-color: #f6f5f4;"
+	    "  border-bottom: 2px solid #888888;"
+	    "  padding: 3px 3px 0px 3px; }\n"
+	    ".macro-tab-bar flowboxchild { padding: 0; margin: 0; }\n"
+	    /* Onglet inactif */
+	    "button.macro-tab { border-top-width: 1px; border-right-width: 1px;"
+	    "  border-bottom-width: 0px; border-left-width: 1px;"
+	    "  border-style: solid; border-color: #888888;"
+	    "  border-radius: 4px 4px 0 0;"
+	    "  padding: 3px 6px; min-width: 0;"
+	    "  background-color: #bbbbbb; background-image: none;"
+	    "  box-shadow: none; margin: 0; color: #444444; }\n"
+	    /* Onglet actif */
+	    "button.macro-tab:checked { background-color: #eeeeee; background-image: none;"
+	    "  color: #000000; border-color: #888888;"
+	    "  margin-top: -1px; padding-top: 4px; }\n"
+	    "button.macro-tab:hover:not(:checked) { background-color: #cccccc;"
+	    "  color: #000000; }\n"
+	    "button.macro-button { min-width: 0; }\n",
 	    -1, NULL);
+	gtk_style_context_add_provider_for_screen(gdk_screen_get_default(),
+	                                          GTK_STYLE_PROVIDER(polling_css_provider),
+	                                          GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
 
 	g_timeout_add(1, polling_timer_callback, NULL);
 	g_timeout_add(500, polling_blink_callback, NULL);
@@ -1433,10 +1531,6 @@ static void populate_view_menu(GtkWidget *menu)
 	connect_check_to_toggle_action(GTK_CHECK_MENU_ITEM(item), action_view_index);
 	gtk_menu_shell_append(GTK_MENU_SHELL(menu), item);
 
-	item = gtk_check_menu_item_new_with_mnemonic(_("Show Rx/Tx"));
-	connect_check_to_toggle_action(GTK_CHECK_MENU_ITEM(item), action_view_show_rxtx);
-	gtk_menu_shell_append(GTK_MENU_SHELL(menu), item);
-
 	gtk_menu_shell_append(GTK_MENU_SHELL(menu), gtk_separator_menu_item_new());
 
 	item = gtk_check_menu_item_new_with_mnemonic(_("Send hexadecimal data"));
@@ -1507,10 +1601,6 @@ static void create_actions_and_menu(void)
 	g_object_ref_sink(G_OBJECT(action_view_index));
 	g_signal_connect(action_view_index, "change-state", G_CALLBACK(view_index_toggled_callback), NULL);
 
-	action_view_show_rxtx = g_simple_action_new_stateful("view-show-rxtx", G_VARIANT_TYPE_BOOLEAN, g_variant_new_boolean(FALSE));
-	g_object_ref_sink(G_OBJECT(action_view_show_rxtx));
-	g_signal_connect(action_view_show_rxtx, "change-state", G_CALLBACK(show_rxtx_toggled_callback), NULL);
-
 	action_view_send_hex = g_simple_action_new_stateful("view-send-hex", G_VARIANT_TYPE_BOOLEAN, g_variant_new_boolean(FALSE));
 	g_object_ref_sink(G_OBJECT(action_view_send_hex));
 	g_signal_connect(action_view_send_hex, "change-state", G_CALLBACK(view_send_hex_toggled_callback), NULL);
@@ -1558,7 +1648,6 @@ void create_main_window(void)
 	gtk_window_add_accel_group(GTK_WINDOW(Fenetre), GTK_ACCEL_GROUP(shortcuts));
 
 	g_signal_connect(GTK_WIDGET(Fenetre), "destroy", (GCallback)gtk_main_quit, NULL);
-	g_signal_connect(GTK_WIDGET(Fenetre), "delete_event", (GCallback)gtk_main_quit, NULL);
 
 	Set_window_title("GTKTerm");
 
@@ -1762,8 +1851,8 @@ gint send_serial(gchar *string, gint len)
 	bytes_written = Send_chars(string, len);
 	if(bytes_written > 0)
 	{
-		if(echo_on || show_rxtx_on)
-			put_chars(string, bytes_written, crlfauto_on, esc_clear_screen_on, TRUE);
+		if(echo_on)
+			put_chars(string, bytes_written, crlfauto_on, esc_clear_screen_on);
 	}
 
 	return bytes_written;
@@ -1794,7 +1883,7 @@ void help_about_callback(GtkAction *action, gpointer data)
 	GdkPixbuf *logo = NULL;
 
 	logo = gdk_pixbuf_new_from_resource ("/org/gtk/gtkterm/gtkterm_64x64.png", &error);
-	g_sprintf(comments, "%s\n\n%s", RELEASE_DATE, comments_program);;
+	g_snprintf(comments, sizeof(comments), "%s\n\n%s", RELEASE_DATE, comments_program);
 
 	gtk_show_about_dialog(GTK_WINDOW(Fenetre),
 	                      "program-name", "GTKTerm fork MGU",
@@ -1938,7 +2027,7 @@ void show_message(gchar *message, gint type_msg)
 
 gboolean Send_Hexadecimal(GtkWidget *widget, GdkEventKey *event, gpointer pointer)
 {
-	guint i;
+	guint i, j;
 	gchar *text, *message, **tokens, *buff;
 	guint scan_val;
 
@@ -1951,27 +2040,30 @@ gboolean Send_Hexadecimal(GtkWidget *widget, GdkEventKey *event, gpointer pointe
 		gtk_entry_set_text(GTK_ENTRY(widget), "");
 		g_free(message);
 		return FALSE;
-	}    
+	}
 
 	tokens = g_strsplit_set(text, " ;", -1);
 	buff = g_malloc(g_strv_length(tokens));
 
-	for(i = 0; tokens[i] != NULL; i++)
+	for(i = 0, j = 0; tokens[i] != NULL; i++)
 	{
+		if(tokens[i][0] == '\0')
+			continue;
 		if(sscanf(tokens[i], "%02X", &scan_val) != 1)
 		{
 			Put_temp_message(_("Improper formatted hex input, 0 bytes sent!"),
 			                 1500);
 			g_free(buff);
+			g_strfreev(tokens);
 			return FALSE;
 		}
-		buff[i] = scan_val;
+		buff[j++] = scan_val;
 	}
 
-	send_serial(buff, i);
+	send_serial(buff, j);
 	g_free(buff);
 
-	message = g_strdup_printf(_("%d byte(s) sent!"), i);
+	message = g_strdup_printf(_("%d byte(s) sent!"), j);
     update_hex_history(widget);
 	Put_temp_message(message, 2000);
 	gtk_entry_set_text(GTK_ENTRY(widget), "");
@@ -2070,17 +2162,17 @@ void update_hex_history(GtkWidget *widget) {
     }
 
     if (!current_hex) {
-        // If current_hex is NULL, add the text to the end of the history
         hex_history = g_list_append(hex_history, g_strdup(text));
     } else {
         const gchar *current_text = (const gchar *)current_hex->data;
 
         if (g_strcmp0(current_text, text) == 0) {
-            // If the entered text matches the current_hex, move it to the end
-            hex_history = g_list_remove(hex_history, current_hex->data);
-            hex_history = g_list_append(hex_history, g_strdup(current_text));
+            gchar *old_data = current_hex->data;
+            gchar *dup = g_strdup(current_text);
+            g_free(old_data);
+            hex_history = g_list_remove(hex_history, old_data);
+            hex_history = g_list_append(hex_history, dup);
         } else {
-            // If the text is different, add it as a new entry
             hex_history = g_list_append(hex_history, g_strdup(text));
         }
     }

@@ -217,17 +217,17 @@ parse_hex_escape (const gchar *string, gint *index)
   gint isTwodigits = 0;
 
   /* Déterminer où commence la partie hexa et combien de digits on a */
-  if (string[i + 1] == '0' && g_unichar_isxdigit ((gunichar) string[i + 2]))
+  if (string[i + 1] == '0' && string[i + 2] != '\0' && g_unichar_isxdigit ((gunichar) string[i + 2]))
     {
       // Format \0XX ou \0X
       hex_start = i + 2;
-      isTwodigits = g_unichar_isxdigit ((gunichar) string[i + 3]) ? 1 : 0;
+      isTwodigits = (string[i + 3] != '\0' && g_unichar_isxdigit ((gunichar) string[i + 3])) ? 1 : 0;
     }
   else if (g_unichar_isxdigit ((gunichar) string[i + 1]))
     {
       // Format \XX ou \X
       hex_start = i + 1;
-      isTwodigits = g_unichar_isxdigit ((gunichar) string[i + 2]) ? 1 : 0;
+      isTwodigits = (string[i + 2] != '\0' && g_unichar_isxdigit ((gunichar) string[i + 2])) ? 1 : 0;
     }
   else
     { // finalement, mauvais format, on sort les caractaire ascii tel quel
@@ -711,7 +711,10 @@ void
 shortcut_callback (gpointer number)
 {
   gint macro_index = GPOINTER_TO_INT (number);
-  /* Récupérer la chaîne de la macro */
+
+  if (macros == NULL || macros[macro_index].action == NULL)
+    return;
+
   gchar *macro_string = macros[macro_index].action;
 
   /* Parser et construire le buffer */
@@ -1609,7 +1612,10 @@ get_macros_file_path (void)
 {
   if (macros_file_path)
     return macros_file_path;
-  return (gchar *) macros_file_get_default_path ();
+  static gchar *default_path = NULL;
+  if (!default_path)
+    default_path = (gchar *) macros_file_get_default_path ();
+  return default_path;
 }
 
 static void

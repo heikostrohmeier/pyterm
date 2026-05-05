@@ -304,7 +304,13 @@ int cfgAllocForNewSection(cfgStruct cfg[], const char *name)
 	}
 	parsecfg_maximum_section = section + 1;
 
-	parsecfg_section_name = realloc(parsecfg_section_name, sizeof(char *) * parsecfg_maximum_section);
+	char **tmp = realloc(parsecfg_section_name, sizeof(char *) * parsecfg_maximum_section);
+	if (tmp == NULL)
+	{
+		cfgFatalFunc(CFG_MEM_ALLOC_FAIL, "unknown", 0, "");
+		return (-1);
+	}
+	parsecfg_section_name = tmp;
 	parsecfg_section_name[parsecfg_maximum_section - 1] = strdup(name);
 	return (parsecfg_maximum_section);
 }

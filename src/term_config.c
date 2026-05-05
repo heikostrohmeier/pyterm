@@ -61,7 +61,7 @@
 
 /* Configuration file variables */
 gchar **port;
-gint *speed;
+guint *speed;
 gint *bits;
 gint *stopbits;
 gchar **parity;
@@ -75,7 +75,7 @@ gint *crlfauto;
 gint *autoreconnect_enabled;
 gint *esc_clear_screen;
 gint *timestamp;
-gint *show_rxtx;
+gint *show_rxtx_compat; /* kept for backward compatibility with old config files */
 gchar **font;
 
 gint *block_cursor;
@@ -97,7 +97,7 @@ gchar **macros_file;
 cfgStruct cfg[] =
 {
 	{"port", CFG_STRING, &port},
-	{"speed", CFG_INT, &speed},
+	{"speed", CFG_UINT, &speed},
 	{"bits", CFG_INT, &bits},
 	{"stopbits", CFG_INT, &stopbits},
 	{"parity", CFG_STRING, &parity},
@@ -111,7 +111,7 @@ cfgStruct cfg[] =
 	{"autoreconnect_enabled", CFG_BOOL, &autoreconnect_enabled},
 	{"esc_clear_screen", CFG_BOOL, &esc_clear_screen},
 	{"timestamp", CFG_BOOL, &timestamp},
-	{"show_rxtx", CFG_BOOL, &show_rxtx},
+	{"show_rxtx", CFG_BOOL, &show_rxtx_compat},
 	{"font", CFG_STRING, &font},
 	{"term_block_cursor", CFG_BOOL, &block_cursor},
 	{"term_rows", CFG_INT, &rows},
@@ -172,6 +172,8 @@ void config_file_init(void)
 
 	if (!g_file_query_exists(config_file, NULL) && g_file_query_exists(config_file_old, NULL))
 		g_file_move(config_file_old, config_file, G_FILE_COPY_NONE, NULL, NULL, NULL, NULL);
+
+	g_object_unref(config_file_old);
 }
 
 void ConfigFlags(void)
@@ -180,7 +182,6 @@ void ConfigFlags(void)
 	Set_autoreconnect_enabled(config.autoreconnect_enabled);
 	Set_esc_clear_screen(config.esc_clear_screen);
 	Set_timestamp(config.timestamp);
-	Set_show_rxtx(config.show_rxtx);
 }
 
 /* This list should perhaps be added to the configuration? */
@@ -681,7 +682,8 @@ void Config_Port_Fenetre(GtkAction *action, gpointer data)
 
 	if(config.car != -1)
 	{
-		gtk_entry_set_text(GTK_ENTRY(Entry), &(config.car));
+		gchar car_str[2] = {config.car, '\0'};
+		gtk_entry_set_text(GTK_ENTRY(Entry), car_str);
 		gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(CheckBouton), TRUE);
 	}
 	gtk_grid_attach(GTK_GRID(Table), CheckBouton, 0, 1, 1, 1);
@@ -737,7 +739,7 @@ gint Lis_Config(GtkWidget *bouton, GtkWidget **Combos)
 	gchar *message;
 
 	message = gtk_combo_box_text_get_active_text(GTK_COMBO_BOX_TEXT(Combos[0]));
-	strcpy(config.port, message);
+	g_strlcpy(config.port, message, sizeof(config.port));
 	g_free(message);
 
 	message = gtk_combo_box_text_get_active_text(GTK_COMBO_BOX_TEXT(Combos[1]));
@@ -822,7 +824,11 @@ void read_font_button(GtkFontButton *fontButton)
 	term_conf.font = g_strdup(gtk_font_chooser_get_font(GTK_FONT_CHOOSER(fontButton)));
 
 	if(term_conf.font != NULL)
-		vte_terminal_set_font(VTE_TERMINAL(display), pango_font_description_from_string(term_conf.font));
+	{
+		PangoFontDescription *font_desc = pango_font_description_from_string(term_conf.font);
+		vte_terminal_set_font(VTE_TERMINAL(display), font_desc);
+		pango_font_description_free(font_desc);
+	}
 }
 
 
@@ -1192,7 +1198,7 @@ void load_config(GtkDialog *Fenetre, gint id, GtkTreeSelection *Selection_Liste)
 	{
 		if(gtk_tree_selection_get_selected(Selection_Liste, &Modele, &iter))
 		{
-			gtk_tree_model_get(GTK_TREE_MODEL(Modele), &iter, 0, (gint *)&txt, -1);
+			gtk_tree_model_get(GTK_TREE_MODEL(Modele), &iter, 0, &txt, -1);
 			Load_configuration_from_file(txt);
 			Verify_configuration();
 			Config_port();
@@ -1217,7 +1223,7 @@ void delete_config(GtkDialog *Fenetre, gint id, GtkTreeSelection *Selection_List
 	{
 		if(gtk_tree_selection_get_selected(Selection_Liste, &Modele, &iter))
 		{
-			gtk_tree_model_get(GTK_TREE_MODEL(Modele), &iter, 0, (gint *)&txt, -1);
+			gtk_tree_model_get(GTK_TREE_MODEL(Modele), &iter, 0, &txt, -1);
 			if(remove_section(g_file_get_path(config_file), txt) == -1)
 				show_message(_("Cannot delete section!"), MSG_ERR);
 		}
@@ -1248,7 +1254,7 @@ gint Load_configuration_from_file(gchar *config_name)
 				Hard_default_configuration();
 
 				if(port[i] != NULL)
-					strcpy(config.port, port[i]);
+					g_strlcpy(config.port, port[i], sizeof(config.port));
 				if(speed[i] != 0)
 					config.vitesse = speed[i];
 				if(bits[i] != 0)
@@ -1311,13 +1317,8 @@ gint Load_configuration_from_file(gchar *config_name)
 				else
 					config.timestamp = FALSE;
 
-				if(show_rxtx[i] != -1)
-					config.show_rxtx = (gboolean)show_rxtx[i];
-				else
-					config.show_rxtx = FALSE;
-
 			g_free(term_conf.font);
-			term_conf.font = g_strdup(font[i]);
+			term_conf.font = (font[i] != NULL) ? g_strdup(font[i]) : g_strdup(DEFAULT_FONT);
 
 			/* Restaurer le chemin du fichier macros */
 			if (macros_file[i] != NULL)
@@ -1382,7 +1383,11 @@ gint Load_configuration_from_file(gchar *config_name)
 		}
 	}
 
-	vte_terminal_set_font(VTE_TERMINAL(display), pango_font_description_from_string(term_conf.font));
+	{
+		PangoFontDescription *font_desc = pango_font_description_from_string(term_conf.font);
+		vte_terminal_set_font(VTE_TERMINAL(display), font_desc);
+		pango_font_description_free(font_desc);
+	}
 
 	vte_terminal_set_size (VTE_TERMINAL(display), term_conf.rows, term_conf.columns);
 	vte_terminal_set_scrollback_lines (VTE_TERMINAL(display), term_conf.scrollback);
@@ -1432,7 +1437,7 @@ void Verify_configuration(void)
 	}
 
 	if(term_conf.font == NULL)
-		term_conf.font = g_strdup_printf(DEFAULT_FONT);
+		term_conf.font = g_strdup(DEFAULT_FONT);
 
 }
 
@@ -1483,8 +1488,7 @@ void Hard_default_configuration(void)
 	config.autoreconnect_enabled = FALSE;
 	config.esc_clear_screen = FALSE;
 	config.timestamp = FALSE;
-	config.show_rxtx = FALSE;
-        config.disable_port_lock = FALSE;
+	config.disable_port_lock = FALSE;
 
 	term_conf.font = g_strdup_printf(DEFAULT_FONT);
 
@@ -1611,14 +1615,6 @@ void Copy_configuration(int pos)
 		string = g_strdup_printf("True");
 
 	cfgStoreValue(cfg, "timestamp", string, CFG_INI, pos);
-	g_free(string);
-
-	if(config.show_rxtx == FALSE)
-		string = g_strdup_printf("False");
-	else
-		string = g_strdup_printf("True");
-
-	cfgStoreValue(cfg, "show_rxtx", string, CFG_INI, pos);
 	g_free(string);
 
 	string = g_strdup(term_conf.font);
@@ -1759,8 +1755,11 @@ gint remove_section(gchar *cfg_file, gchar *section)
 	}
 
 	fwrite(buffer, 1, sect, f);
-	buf = buffer + i;
-	fwrite(buf, 1, size - i, f);
+	if(i < size)
+	{
+		buf = buffer + i;
+		fwrite(buf, 1, size - i, f);
+	}
 	fclose(f);
 
 	g_free(to_search);
@@ -1817,6 +1816,7 @@ void Config_Terminal(GtkAction *action, gpointer data)
 	g_signal_connect_swapped(close, "clicked", G_CALLBACK(gtk_widget_destroy), GTK_WIDGET(dialog));
 
 	gtk_widget_show_all(dialog);
+	g_object_unref(builder);
 }
 
 gboolean cursor_block(GtkSwitch *ToggleSwitch, gboolean state, gpointer data)
@@ -1843,16 +1843,16 @@ void config_fg_color(GtkWidget *button, gpointer data)
 	vte_terminal_set_color_foreground (VTE_TERMINAL(display), &term_conf.foreground_color);
 	gtk_widget_queue_draw (display);
 
-	string = g_strdup_printf ("%d", (gint)term_conf.foreground_color.red);
+	string = g_strdup_printf ("%f", term_conf.foreground_color.red);
 	cfgStoreValue (cfg, "term_foreground_red", string, CFG_INI, 0);
 	g_free (string);
-	string = g_strdup_printf ("%d", (gint)term_conf.foreground_color.green);
+	string = g_strdup_printf ("%f", term_conf.foreground_color.green);
 	cfgStoreValue (cfg, "term_foreground_green", string, CFG_INI, 0);
 	g_free (string);
-	string = g_strdup_printf ("%d", (gint)term_conf.foreground_color.blue);
+	string = g_strdup_printf ("%f", term_conf.foreground_color.blue);
 	cfgStoreValue (cfg, "term_foreground_blue", string, CFG_INI, 0);
 	g_free (string);
-	string = g_strdup_printf ("%d", (gint)term_conf.foreground_color.alpha);
+	string = g_strdup_printf ("%f", term_conf.foreground_color.alpha);
 	cfgStoreValue (cfg, "term_foreground_alpha", string, CFG_INI, 0);
 	g_free (string);
 }
@@ -1866,16 +1866,16 @@ void config_bg_color(GtkWidget *button, gpointer data)
 	vte_terminal_set_color_background (VTE_TERMINAL(display), &term_conf.background_color);
 	gtk_widget_queue_draw (display);
 
-	string = g_strdup_printf ("%d", (gint)term_conf.background_color.red);
+	string = g_strdup_printf ("%f", term_conf.background_color.red);
 	cfgStoreValue (cfg, "term_background_red", string, CFG_INI, 0);
 	g_free (string);
-	string = g_strdup_printf ("%d", (gint)term_conf.background_color.green);
+	string = g_strdup_printf ("%f", term_conf.background_color.green);
 	cfgStoreValue (cfg, "term_background_green", string, CFG_INI, 0);
 	g_free (string);
-	string = g_strdup_printf ("%d", (gint)term_conf.background_color.blue);
+	string = g_strdup_printf ("%f", term_conf.background_color.blue);
 	cfgStoreValue (cfg, "term_background_blue", string, CFG_INI, 0);
 	g_free (string);
-	string = g_strdup_printf ("%d", (gint)term_conf.background_color.alpha);
+	string = g_strdup_printf ("%f", term_conf.background_color.alpha);
 	cfgStoreValue (cfg, "term_background_alpha", string, CFG_INI, 0);
 	g_free (string);
 }

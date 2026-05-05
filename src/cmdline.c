@@ -58,7 +58,7 @@ void display_help(void)
 	i18n_printf("\n");
 }
 
-int read_command_line(int argc, char **argv, gchar *configuration_to_read)
+int read_command_line(int argc, char **argv)
 {
 	int c;
 	int option_index = 0;
@@ -123,7 +123,7 @@ int read_command_line(int argc, char **argv, gchar *configuration_to_read)
 			break;
 
 		case 'p':
-			strcpy(config.port, optarg);
+			g_strlcpy(config.port, optarg, sizeof(config.port));
 			break;
 
 		case 'w':

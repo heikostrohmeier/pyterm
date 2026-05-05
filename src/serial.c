@@ -32,7 +32,6 @@
 #include <sys/file.h>
 #include <signal.h>
 #include <string.h>
-#include <errno.h>
 #include <pwd.h>
 
 #include "term_config.h"
@@ -72,7 +71,7 @@ gboolean Lis_port(GIOChannel* src, GIOCondition cond, gpointer data)
 		bytes_read = read(serial_port_fd, c, BUFFER_RECEPTION);
 		if(bytes_read > 0)
 		{
-			put_chars(c, bytes_read, config.crlfauto, config.esc_clear_screen, FALSE);
+			put_chars(c, bytes_read, config.crlfauto, config.esc_clear_screen);
 
 			if(config.car != -1 && waiting_for_char == TRUE)
 			{
@@ -119,8 +118,8 @@ int Send_chars(char *string, int length)
 	/* RS485 half-duplex mode ? */
 	if( config.flux==3 )
 	{
-		/* set RTS (start to send) */
-		Set_signals( 1 );
+		/* assert RTS (start to send) */
+		ioctl(serial_port_fd, TIOCMBIS, (int[]){TIOCM_RTS});
 		if( config.rs485_rts_time_before_transmit>0 )
 			usleep(config.rs485_rts_time_before_transmit*1000);
 	}
@@ -130,12 +129,12 @@ int Send_chars(char *string, int length)
 	/* RS485 half-duplex mode ? */
 	if( config.flux==3 )
 	{
-		/* wait all chars are send */
+		/* wait all chars are sent */
 		tcdrain( serial_port_fd );
 		if( config.rs485_rts_time_after_transmit>0 )
 			usleep(config.rs485_rts_time_after_transmit*1000);
-		/* reset RTS (end of send, now receiving back) */
-		Set_signals( 1 );
+		/* deassert RTS (end of send, now receiving) */
+		ioctl(serial_port_fd, TIOCMBIC, (int[]){TIOCM_RTS});
 	}
 
 	return bytes_written;
@@ -153,8 +152,9 @@ gboolean Config_port(void)
 
 	if(serial_port_fd == -1)
 	{
-		msg = g_strdup_printf(_("Cannot open %s: %s\n"),
-		                      config.port, strerror_utf8(errno));
+		gchar *err_str = strerror_utf8(errno);
+		msg = g_strdup_printf(_("Cannot open %s: %s\n"), config.port, err_str);
+		g_free(err_str);
 		show_message(msg, MSG_ERR);
 		g_free(msg);
 
@@ -263,17 +263,22 @@ gboolean Config_port(void)
 	tcflush(serial_port_fd, TCOFLUSH);
 	tcflush(serial_port_fd, TCIFLUSH);
 
-	callback_handler_in = g_io_add_watch_full(g_io_channel_unix_new(serial_port_fd),
+	GIOChannel *channel = g_io_channel_unix_new(serial_port_fd);
+	g_io_channel_set_close_on_unref(channel, FALSE);
+
+	callback_handler_in = g_io_add_watch_full(channel,
 	                      10,
 	                      G_IO_IN,
 	                      (GIOFunc)Lis_port,
 	                      NULL, NULL);
 
-	callback_handler_err = g_io_add_watch_full(g_io_channel_unix_new(serial_port_fd),
+	callback_handler_err = g_io_add_watch_full(channel,
 	                       10,
 	                       G_IO_ERR,
 	                       (GIOFunc)io_err,
 	                       NULL, NULL);
+
+	g_io_channel_unref(channel);
 
 	callback_activated = TRUE;
 
