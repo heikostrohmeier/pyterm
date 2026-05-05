@@ -99,6 +99,8 @@ GtkAccelGroup *shortcuts;
 GtkWidget *display = NULL;
 GtkWidget *macro_panel;
 GtkWidget *macro_notebook;
+static GtkWidget *macro_tab_flowbox;
+static GtkWidget *macro_stack;
 static GHashTable *hidden_macro_tabs;
 
 /* Polling state per macro */
@@ -207,6 +209,7 @@ static void on_polling_period_changed(GtkWidget *entry, gpointer user_data);
 static gboolean polling_blink_callback(gpointer user_data);
 static void on_polling_mode_toggled(GtkCheckMenuItem *check_item, gpointer user_data);
 static void send_macro_by_index(gint macro_index);
+static void on_macro_tab_clicked(GtkToggleButton *btn, gpointer user_data);
 static void create_macro_panel(void);
 void rebuild_macro_buttons(void);
 void show_rxtx_toggled_callback(GSimpleAction *action, GVariant *parameter, gpointer data);
@@ -810,10 +813,15 @@ void rebuild_macro_buttons(void)
 	gint nb_macros = 0;
 	macro_t *macros = get_shortcuts(&nb_macros);
 
-	if (macro_notebook == NULL)
+	if (macro_tab_flowbox == NULL || macro_notebook == NULL)
 		return;
 
-	/* Supprimer toutes les pages existantes */
+	/* Supprimer tous les boutons-onglets et pages existants */
+	GList *old_tabs = gtk_container_get_children(GTK_CONTAINER(macro_tab_flowbox));
+	for (GList *c = old_tabs; c != NULL; c = c->next)
+		gtk_container_remove(GTK_CONTAINER(macro_tab_flowbox), GTK_WIDGET(c->data));
+	g_list_free(old_tabs);
+
 	while (gtk_notebook_get_n_pages(GTK_NOTEBOOK(macro_notebook)) > 0)
 		gtk_notebook_remove_page(GTK_NOTEBOOK(macro_notebook), 0);
 
@@ -854,8 +862,15 @@ void rebuild_macro_buttons(void)
 		gtk_widget_set_sensitive(lbl, FALSE);
 		gtk_box_pack_start(GTK_BOX(vbox), lbl, FALSE, FALSE, 10);
 		gtk_widget_show_all(vbox);
-		gtk_notebook_append_page(GTK_NOTEBOOK(macro_notebook), vbox,
-		                         gtk_label_new(_("General")));
+		gtk_notebook_append_page(GTK_NOTEBOOK(macro_notebook), vbox, NULL);
+
+		GtkWidget *tab_btn = gtk_toggle_button_new_with_label(_("General"));
+		gtk_button_set_relief(GTK_BUTTON(tab_btn), GTK_RELIEF_NONE);
+		gtk_style_context_add_class(gtk_widget_get_style_context(tab_btn), "macro-tab");
+		gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(tab_btn), TRUE);
+		gtk_widget_show(tab_btn);
+		gtk_container_add(GTK_CONTAINER(macro_tab_flowbox), tab_btn);
+		gtk_widget_show_all(macro_tab_flowbox);
 		return;
 	}
 
@@ -1081,9 +1096,27 @@ void rebuild_macro_buttons(void)
 		}
 
 		gtk_widget_show_all(scrolled);
-		gtk_notebook_append_page(GTK_NOTEBOOK(macro_notebook), scrolled,
-		                         gtk_label_new(tab_name));
+		gtk_notebook_append_page(GTK_NOTEBOOK(macro_notebook), scrolled, NULL);
+
+		GtkWidget *tab_btn = gtk_toggle_button_new_with_label(tab_name);
+		gtk_button_set_relief(GTK_BUTTON(tab_btn), GTK_RELIEF_NONE);
+		gtk_style_context_add_class(gtk_widget_get_style_context(tab_btn), "macro-tab");
+		g_signal_connect(tab_btn, "clicked", G_CALLBACK(on_macro_tab_clicked), NULL);
+		gtk_widget_show(tab_btn);
+		gtk_container_add(GTK_CONTAINER(macro_tab_flowbox), tab_btn);
 	}
+
+	/* Activer le premier onglet */
+	gtk_notebook_set_current_page(GTK_NOTEBOOK(macro_notebook), 0);
+	GList *fb_children = gtk_container_get_children(GTK_CONTAINER(macro_tab_flowbox));
+	if (fb_children != NULL)
+	{
+		GtkWidget *first_child = gtk_bin_get_child(GTK_BIN(fb_children->data));
+		if (GTK_IS_TOGGLE_BUTTON(first_child))
+			gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(first_child), TRUE);
+	}
+	g_list_free(fb_children);
+	gtk_widget_show_all(macro_tab_flowbox);
 
 	g_list_free(tab_names);
 
@@ -1092,6 +1125,41 @@ void rebuild_macro_buttons(void)
 	{
 		if (macros[i].polling_enabled)
 			restore_macro_polling(i, TRUE, macros[i].polling_period_ms);
+	}
+}
+
+static void on_macro_tab_clicked(GtkToggleButton *btn, gpointer user_data)
+{
+	/* Trouver l'index de ce bouton dans le FlowBox */
+	GList *fb_children = gtk_container_get_children(GTK_CONTAINER(macro_tab_flowbox));
+	gint page_index = 0;
+	gint idx = 0;
+	for (GList *c = fb_children; c != NULL; c = c->next, idx++)
+	{
+		GtkWidget *child = gtk_bin_get_child(GTK_BIN(c->data));
+		if (child == GTK_WIDGET(btn))
+		{
+			page_index = idx;
+		}
+		else if (GTK_IS_TOGGLE_BUTTON(child))
+		{
+			/* Bloquer le signal pour éviter la récursion : set_active émet "clicked" */
+			g_signal_handlers_block_by_func(child, on_macro_tab_clicked, NULL);
+			gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(child), FALSE);
+			g_signal_handlers_unblock_by_func(child, on_macro_tab_clicked, NULL);
+		}
+	}
+	g_list_free(fb_children);
+
+	/* Afficher la page correspondante dans le notebook */
+	gtk_notebook_set_current_page(GTK_NOTEBOOK(macro_notebook), page_index);
+
+	/* Empêcher de désactiver le bouton actif en recliquant dessus */
+	if (!gtk_toggle_button_get_active(btn))
+	{
+		g_signal_handlers_block_by_func(btn, on_macro_tab_clicked, NULL);
+		gtk_toggle_button_set_active(btn, TRUE);
+		g_signal_handlers_unblock_by_func(btn, on_macro_tab_clicked, NULL);
 	}
 }
 
@@ -1115,7 +1183,8 @@ static gboolean on_macro_notebook_button_press(GtkWidget *widget, GdkEventButton
 
 	GtkWidget *target = gtk_get_event_widget((GdkEvent *)event);
 	GtkWidget *btn = gtk_widget_get_ancestor(target, GTK_TYPE_BUTTON);
-	if (btn != NULL)
+	/* Ne pas bloquer le menu si c'est un bouton-onglet (macro-tab) */
+	if (btn != NULL && !gtk_style_context_has_class(gtk_widget_get_style_context(btn), "macro-tab"))
 		return FALSE;
 
 	gint nb_macros = 0;
@@ -1171,19 +1240,62 @@ static void create_macro_panel(void)
 	macro_polling_table = g_hash_table_new_full(g_direct_hash, g_direct_equal, NULL, (GDestroyNotify)free_polling_args);
 	macro_button_table = g_hash_table_new_full(g_direct_hash, g_direct_equal, NULL, NULL);
 
-	macro_notebook = gtk_notebook_new();
-	gtk_notebook_set_tab_pos(GTK_NOTEBOOK(macro_notebook), GTK_POS_TOP);
-	gtk_widget_set_size_request(macro_notebook, 170, -1);
-	g_signal_connect(macro_notebook, "button-press-event",
+	/* Conteneur principal du panneau latéral */
+	GtkWidget *panel_vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+	gtk_widget_set_size_request(panel_vbox, 170, -1);
+
+	/* Barre d'onglets wrappable */
+	macro_tab_flowbox = gtk_flow_box_new();
+	gtk_flow_box_set_min_children_per_line(GTK_FLOW_BOX(macro_tab_flowbox), 4);
+	gtk_flow_box_set_max_children_per_line(GTK_FLOW_BOX(macro_tab_flowbox), 100);
+	gtk_flow_box_set_selection_mode(GTK_FLOW_BOX(macro_tab_flowbox), GTK_SELECTION_NONE);
+	gtk_flow_box_set_homogeneous(GTK_FLOW_BOX(macro_tab_flowbox), TRUE);
+	gtk_flow_box_set_column_spacing(GTK_FLOW_BOX(macro_tab_flowbox), 0);
+	gtk_flow_box_set_row_spacing(GTK_FLOW_BOX(macro_tab_flowbox), 0);
+	gtk_style_context_add_class(gtk_widget_get_style_context(macro_tab_flowbox), "macro-tab-bar");
+	g_signal_connect(macro_tab_flowbox, "button-press-event",
 	                 G_CALLBACK(on_macro_notebook_button_press), NULL);
 
-	macro_panel = macro_notebook;
+	/* Notebook natif avec onglets masqués — donne le look natif à la zone de contenu */
+	macro_notebook = gtk_notebook_new();
+	gtk_notebook_set_show_tabs(GTK_NOTEBOOK(macro_notebook), FALSE);
+	gtk_notebook_set_show_border(GTK_NOTEBOOK(macro_notebook), TRUE);
+	macro_stack = NULL;
 
-	/* Initialize CSS provider for polling blink */
+	gtk_box_pack_start(GTK_BOX(panel_vbox), macro_tab_flowbox, FALSE, FALSE, 0);
+	gtk_box_pack_start(GTK_BOX(panel_vbox), macro_notebook, TRUE, TRUE, 0);
+
+	macro_panel = panel_vbox;
+
+	/* CSS : polling blink + apparence onglets */
 	polling_css_provider = gtk_css_provider_new();
 	gtk_css_provider_load_from_data(polling_css_provider,
-	    "button.polling-blink { background-color: #abf573; background-image: none; color: black; border-color: #00cc00; }\n",
+	    /* Polling blink */
+	    "button.polling-blink { background-color: #abf573; background-image: none;"
+	    "  color: black; border-color: #00cc00; }\n"
+	    /* Barre d'onglets */
+	    ".macro-tab-bar { background-color: #f6f5f4;"
+	    "  border-bottom: 2px solid #888888;"
+	    "  padding: 3px 3px 0px 3px; }\n"
+	    ".macro-tab-bar flowboxchild { padding: 0; margin: 0; }\n"
+	    /* Onglet inactif */
+	    "button.macro-tab { border-top-width: 1px; border-right-width: 1px;"
+	    "  border-bottom-width: 0px; border-left-width: 1px;"
+	    "  border-style: solid; border-color: #888888;"
+	    "  border-radius: 4px 4px 0 0;"
+	    "  padding: 3px 6px; min-width: 0;"
+	    "  background-color: #bbbbbb; background-image: none;"
+	    "  box-shadow: none; margin: 0; color: #444444; }\n"
+	    /* Onglet actif */
+	    "button.macro-tab:checked { background-color: #eeeeee; background-image: none;"
+	    "  color: #000000; border-color: #888888;"
+	    "  margin-top: -1px; padding-top: 4px; }\n"
+	    "button.macro-tab:hover:not(:checked) { background-color: #cccccc;"
+	    "  color: #000000; }\n",
 	    -1, NULL);
+	gtk_style_context_add_provider_for_screen(gdk_screen_get_default(),
+	                                          GTK_STYLE_PROVIDER(polling_css_provider),
+	                                          GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
 
 	g_timeout_add(1, polling_timer_callback, NULL);
 	g_timeout_add(500, polling_blink_callback, NULL);
