@@ -1054,13 +1054,19 @@ Save_shortcuts (GtkWidget *button, gpointer pointer)
   GtkTreeModel *model = gtk_tree_view_get_model (treeview);
   gint i = 0;
 
-  /* Préserver les args existants par index avant de détruire les macros */
+  /* Préserver args et état polling avant de détruire les macros */
   gint old_count = 0;
   macro_t *old_macros = get_shortcuts (&old_count);
-  gchar ***saved_args = g_new0 (gchar **, old_count);
+  gchar    ***saved_args           = g_new0 (gchar **,  old_count);
+  gboolean  *saved_polling_enabled = g_new0 (gboolean,  old_count);
+  guint     *saved_polling_period  = g_new0 (guint,     old_count);
   for (gint k = 0; k < old_count; k++)
-    if (old_macros[k].args != NULL)
-      saved_args[k] = g_strdupv (old_macros[k].args);
+    {
+      if (old_macros[k].args != NULL)
+        saved_args[k] = g_strdupv (old_macros[k].args);
+      saved_polling_enabled[k] = old_macros[k].polling_enabled;
+      saved_polling_period[k]  = old_macros[k].polling_period_ms;
+    }
 
   remove_shortcuts ();
 
@@ -1073,7 +1079,7 @@ Save_shortcuts (GtkWidget *button, gpointer pointer)
       while (gtk_tree_model_iter_next (model, &iter));
 
       gtk_tree_model_get_iter_first (model, &iter);
-      macros = g_malloc ((i + 1) * sizeof (macro_t));
+      macros = g_malloc0 ((i + 1) * sizeof (macro_t));
       i = 0;
       if (macros != NULL)
         {
@@ -1097,6 +1103,19 @@ Save_shortcuts (GtkWidget *button, gpointer pointer)
                 {
                   macros[i].args = NULL;
                 }
+
+              /* Restaurer l'état polling */
+              if (i < old_count)
+                {
+                  macros[i].polling_enabled    = saved_polling_enabled[i];
+                  macros[i].polling_period_ms  = saved_polling_period[i]
+                                                 ? saved_polling_period[i] : 1000;
+                }
+              else
+                {
+                  macros[i].polling_enabled   = FALSE;
+                  macros[i].polling_period_ms = 1000;
+                }
               i++;
             }
           while (gtk_tree_model_iter_next (model, &iter));
@@ -1112,6 +1131,8 @@ Save_shortcuts (GtkWidget *button, gpointer pointer)
   for (gint k = 0; k < old_count; k++)
     g_strfreev (saved_args[k]);
   g_free (saved_args);
+  g_free (saved_polling_enabled);
+  g_free (saved_polling_period);
 
   add_shortcuts ();
 
