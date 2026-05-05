@@ -31,10 +31,7 @@
 #define TIMESTAMP_SIZE 50
 
 extern gboolean timestamp_on;
-extern gboolean show_rxtx_on;
 static int need_to_write_timestamp = 0;
-static int need_to_write_rxtx = 0;
-static gboolean rxtx_is_tx = FALSE;
 static char *buffer = NULL;
 static char *current_buffer;
 static unsigned int pointer;
@@ -89,24 +86,17 @@ unsigned int insert_timestamp(char *buffer)
   return size;
 }
 
-void put_chars(const char *chars, unsigned int size, gboolean crlf_auto, gboolean esc_clear_screen, gboolean is_tx)
+void put_chars(const char *chars, unsigned int size, gboolean crlf_auto, gboolean esc_clear_screen)
 {
-	// Each input byte can expand to at most: 1 (CR insert) + 3 (RX/TX prefix) +
-	// TIMESTAMP_SIZE (timestamp) + 1 (char itself). Allocate on the heap to avoid
-	// stack overflow with large inputs containing many newlines.
+	// Each input byte can expand to at most: 1 (CR insert) + TIMESTAMP_SIZE + 1 (char itself).
+	// Allocate on the heap to avoid stack overflow with large inputs containing many newlines.
 	char *out_buffer = NULL;
 	const char *characters;
 
-	if(show_rxtx_on)
-	{
-		rxtx_is_tx = is_tx;
-		need_to_write_rxtx = 1;
-	}
-
 	/* If the auto CR LF mode on, read the buffer to add \r before \n */
-	if(crlf_auto || timestamp_on || esc_clear_screen || show_rxtx_on)
+	if(crlf_auto || timestamp_on || esc_clear_screen)
 	{
-		out_buffer = g_malloc(size * (TIMESTAMP_SIZE + 6) + 1);
+		out_buffer = g_malloc(size * (TIMESTAMP_SIZE + 3) + 1);
 		int i, out_size = 0;
 
 		for (i=0; i<size; i++)
@@ -155,15 +145,6 @@ void put_chars(const char *chars, unsigned int size, gboolean crlf_auto, gboolea
 				}
 			} //if crlf_auto
 
-			if(need_to_write_rxtx && show_rxtx_on)
-			{
-				const char *prefix = rxtx_is_tx ? "TX:" : "RX:";
-				out_buffer[out_size++] = prefix[0];
-				out_buffer[out_size++] = prefix[1];
-				out_buffer[out_size++] = prefix[2];
-				need_to_write_rxtx = 0;
-			}
-
 			if(need_to_write_timestamp)
 			{
 				out_size += insert_timestamp(&out_buffer[out_size]);
@@ -171,10 +152,7 @@ void put_chars(const char *chars, unsigned int size, gboolean crlf_auto, gboolea
 			}
 
 			if(chars[i] == '\n')
-			{
 				need_to_write_timestamp = 1;
-				need_to_write_rxtx = 1;
-			}
 
 			//copy each character to new buffer
 			out_buffer[out_size] = chars[i];

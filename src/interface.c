@@ -87,7 +87,6 @@ gboolean autoreconnect_on;
 gboolean crlfauto_on;
 gboolean esc_clear_screen_on;
 gboolean timestamp_on = 0;
-gboolean show_rxtx_on = FALSE;
 GtkWidget *StatusBar;
 GtkWidget *signals[6];
 static GtkWidget *Hex_Box;
@@ -138,7 +137,6 @@ static GSimpleAction *action_crlf_auto;
 static GSimpleAction *action_esc_clear_screen;
 static GSimpleAction *action_timestamp;
 static GSimpleAction *action_view_index;
-static GSimpleAction *action_view_show_rxtx;
 static GSimpleAction *action_view_send_hex;
 static GSimpleAction *action_view_macro_panel;
 
@@ -212,9 +210,6 @@ static void send_macro_by_index(gint macro_index);
 static void on_macro_tab_clicked(GtkToggleButton *btn, gpointer user_data);
 static void create_macro_panel(void);
 void rebuild_macro_buttons(void);
-void show_rxtx_toggled_callback(GSimpleAction *action, GVariant *parameter, gpointer data);
-void Set_show_rxtx(gboolean show);
-
 void set_saved_data(GtkWidget *widget, gboolean direction);
 void update_hex_history(GtkWidget *widget);
 gboolean on_key_press(GtkWidget *widget, GdkEventKey *event, gpointer user_data);
@@ -346,17 +341,6 @@ void timestamp_toggled_callback(GSimpleAction *action, GVariant *parameter, gpoi
 	config.timestamp = timestamp_on ? TRUE : FALSE;
 }
 
-void Set_show_rxtx(gboolean show)
-{
-	show_rxtx_on = show;
-	g_simple_action_set_state(action_view_show_rxtx, g_variant_new_boolean(show_rxtx_on));
-}
-
-void show_rxtx_toggled_callback(GSimpleAction *action, GVariant *parameter, gpointer data)
-{
-	show_rxtx_on = g_variant_get_boolean(parameter);
-	config.show_rxtx = show_rxtx_on ? TRUE : FALSE;
-}
 
 	void toggle_logging_pause_resume(gboolean currentlyLogging)
 {
@@ -1543,10 +1527,6 @@ static void populate_view_menu(GtkWidget *menu)
 	connect_check_to_toggle_action(GTK_CHECK_MENU_ITEM(item), action_view_index);
 	gtk_menu_shell_append(GTK_MENU_SHELL(menu), item);
 
-	item = gtk_check_menu_item_new_with_mnemonic(_("Show Rx/Tx"));
-	connect_check_to_toggle_action(GTK_CHECK_MENU_ITEM(item), action_view_show_rxtx);
-	gtk_menu_shell_append(GTK_MENU_SHELL(menu), item);
-
 	gtk_menu_shell_append(GTK_MENU_SHELL(menu), gtk_separator_menu_item_new());
 
 	item = gtk_check_menu_item_new_with_mnemonic(_("Send hexadecimal data"));
@@ -1616,10 +1596,6 @@ static void create_actions_and_menu(void)
 	action_view_index = g_simple_action_new_stateful("view-index", G_VARIANT_TYPE_BOOLEAN, g_variant_new_boolean(FALSE));
 	g_object_ref_sink(G_OBJECT(action_view_index));
 	g_signal_connect(action_view_index, "change-state", G_CALLBACK(view_index_toggled_callback), NULL);
-
-	action_view_show_rxtx = g_simple_action_new_stateful("view-show-rxtx", G_VARIANT_TYPE_BOOLEAN, g_variant_new_boolean(FALSE));
-	g_object_ref_sink(G_OBJECT(action_view_show_rxtx));
-	g_signal_connect(action_view_show_rxtx, "change-state", G_CALLBACK(show_rxtx_toggled_callback), NULL);
 
 	action_view_send_hex = g_simple_action_new_stateful("view-send-hex", G_VARIANT_TYPE_BOOLEAN, g_variant_new_boolean(FALSE));
 	g_object_ref_sink(G_OBJECT(action_view_send_hex));
@@ -1871,8 +1847,8 @@ gint send_serial(gchar *string, gint len)
 	bytes_written = Send_chars(string, len);
 	if(bytes_written > 0)
 	{
-		if(echo_on || show_rxtx_on)
-			put_chars(string, bytes_written, crlfauto_on, esc_clear_screen_on, TRUE);
+		if(echo_on)
+			put_chars(string, bytes_written, crlfauto_on, esc_clear_screen_on);
 	}
 
 	return bytes_written;

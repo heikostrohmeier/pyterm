@@ -71,7 +71,7 @@ gboolean Lis_port(GIOChannel* src, GIOCondition cond, gpointer data)
 		bytes_read = read(serial_port_fd, c, BUFFER_RECEPTION);
 		if(bytes_read > 0)
 		{
-			put_chars(c, bytes_read, config.crlfauto, config.esc_clear_screen, FALSE);
+			put_chars(c, bytes_read, config.crlfauto, config.esc_clear_screen);
 
 			if(config.car != -1 && waiting_for_char == TRUE)
 			{
