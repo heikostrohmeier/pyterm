@@ -432,6 +432,7 @@ save_arg_from_widget(GtkWidget *widget)
 	gchar *val = get_arg_value_from_widget(widget);
 	macro_set_arg(macro_index, arg_index, val);
 	g_free(val);
+	macros_file_save(NULL);
 	save_config_silent();
 }
 
@@ -799,6 +800,11 @@ static void on_macro_arg_entry_activate(GtkWidget *entry, gpointer data)
 	save_entry_arg(entry);
 	on_macro_arg_button_clicked(GTK_WIDGET(data), NULL);
 }
+
+static void on_combo_arg_changed(GtkComboBox *combo, gpointer data)
+{
+	save_arg_from_widget(GTK_WIDGET(combo));
+}
 void rebuild_macro_buttons(void)
 {
 	gint nb_macros = 0;
@@ -976,7 +982,32 @@ void rebuild_macro_buttons(void)
 						gtk_cell_layout_pack_start(GTK_CELL_LAYOUT(widget), renderer, TRUE);
 						gtk_cell_layout_set_attributes(GTK_CELL_LAYOUT(widget), renderer,
 						                              "text", 0, NULL);
-						gtk_combo_box_set_active(GTK_COMBO_BOX(widget), 0);
+
+						/* Pré-sélectionner la valeur sauvegardée si disponible */
+						gint active_idx = 0;
+						if (macros[i].args != NULL && k < (gint)g_strv_length(macros[i].args)
+						    && macros[i].args[k] != NULL)
+						{
+							GtkTreeModel *m = gtk_combo_box_get_model(GTK_COMBO_BOX(widget));
+							GtkTreeIter it;
+							if (gtk_tree_model_get_iter_first(m, &it))
+							{
+								gint idx = 0;
+								do {
+									gchar *val;
+									gtk_tree_model_get(m, &it, 1, &val, -1);
+									if (g_strcmp0(val, macros[i].args[k]) == 0)
+									{
+										active_idx = idx;
+										g_free(val);
+										break;
+									}
+									g_free(val);
+									idx++;
+								} while (gtk_tree_model_iter_next(m, &it));
+							}
+						}
+						gtk_combo_box_set_active(GTK_COMBO_BOX(widget), active_idx);
 					}
 					else
 					{
@@ -998,8 +1029,12 @@ void rebuild_macro_buttons(void)
 					g_object_set_data(G_OBJECT(widget), "macro-index", GINT_TO_POINTER(i));
 					g_object_set_data(G_OBJECT(widget), "arg-index",   GINT_TO_POINTER(k));
 
-					g_signal_connect(widget, "focus-out-event",
-					                 G_CALLBACK(on_macro_arg_entry_focus_out), NULL);
+					if (GTK_IS_COMBO_BOX(widget))
+						g_signal_connect(widget, "changed",
+						                 G_CALLBACK(on_combo_arg_changed), NULL);
+					else
+						g_signal_connect(widget, "focus-out-event",
+						                 G_CALLBACK(on_macro_arg_entry_focus_out), NULL);
 					if (GTK_IS_ENTRY(widget))
 						g_signal_connect(widget, "activate",
 						                 G_CALLBACK(on_macro_arg_entry_activate), button);
