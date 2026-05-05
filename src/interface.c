@@ -801,7 +801,6 @@ static gboolean on_macro_arg_entry_focus_out(GtkWidget *entry, GdkEvent *event, 
 static void on_macro_arg_entry_activate(GtkWidget *entry, gpointer data)
 {
 	save_entry_arg(entry);
-	on_macro_arg_button_clicked(GTK_WIDGET(data), NULL);
 }
 
 static void on_combo_arg_changed(GtkComboBox *combo, gpointer data)
