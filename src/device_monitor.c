@@ -69,7 +69,10 @@ extern void device_monitor_start(void)
 	const gchar *const subsystems[] = {NULL, NULL};
 
 	/* Initial check */
-	GUdevClient *udev_client = g_udev_client_new(subsystems);
+	static GUdevClient *udev_client = NULL;
+	if(udev_client != NULL)
+		g_object_unref(udev_client);
+	udev_client = g_udev_client_new(subsystems);
 
 	if (g_udev_client_query_by_device_file(udev_client, config.port) == NULL) {
 		device_monitor_status(false);

@@ -681,7 +681,8 @@ void Config_Port_Fenetre(GtkAction *action, gpointer data)
 
 	if(config.car != -1)
 	{
-		gtk_entry_set_text(GTK_ENTRY(Entry), &(config.car));
+		gchar car_str[2] = {config.car, '\0'};
+		gtk_entry_set_text(GTK_ENTRY(Entry), car_str);
 		gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(CheckBouton), TRUE);
 	}
 	gtk_grid_attach(GTK_GRID(Table), CheckBouton, 0, 1, 1, 1);
@@ -737,7 +738,7 @@ gint Lis_Config(GtkWidget *bouton, GtkWidget **Combos)
 	gchar *message;
 
 	message = gtk_combo_box_text_get_active_text(GTK_COMBO_BOX_TEXT(Combos[0]));
-	strcpy(config.port, message);
+	g_strlcpy(config.port, message, sizeof(config.port));
 	g_free(message);
 
 	message = gtk_combo_box_text_get_active_text(GTK_COMBO_BOX_TEXT(Combos[1]));
@@ -822,7 +823,11 @@ void read_font_button(GtkFontButton *fontButton)
 	term_conf.font = g_strdup(gtk_font_chooser_get_font(GTK_FONT_CHOOSER(fontButton)));
 
 	if(term_conf.font != NULL)
-		vte_terminal_set_font(VTE_TERMINAL(display), pango_font_description_from_string(term_conf.font));
+	{
+		PangoFontDescription *font_desc = pango_font_description_from_string(term_conf.font);
+		vte_terminal_set_font(VTE_TERMINAL(display), font_desc);
+		pango_font_description_free(font_desc);
+	}
 }
 
 
@@ -1248,7 +1253,7 @@ gint Load_configuration_from_file(gchar *config_name)
 				Hard_default_configuration();
 
 				if(port[i] != NULL)
-					strcpy(config.port, port[i]);
+					g_strlcpy(config.port, port[i], sizeof(config.port));
 				if(speed[i] != 0)
 					config.vitesse = speed[i];
 				if(bits[i] != 0)
@@ -1317,7 +1322,7 @@ gint Load_configuration_from_file(gchar *config_name)
 					config.show_rxtx = FALSE;
 
 			g_free(term_conf.font);
-			term_conf.font = g_strdup(font[i]);
+			term_conf.font = (font[i] != NULL) ? g_strdup(font[i]) : g_strdup(DEFAULT_FONT);
 
 			/* Restaurer le chemin du fichier macros */
 			if (macros_file[i] != NULL)
@@ -1382,7 +1387,11 @@ gint Load_configuration_from_file(gchar *config_name)
 		}
 	}
 
-	vte_terminal_set_font(VTE_TERMINAL(display), pango_font_description_from_string(term_conf.font));
+	{
+		PangoFontDescription *font_desc = pango_font_description_from_string(term_conf.font);
+		vte_terminal_set_font(VTE_TERMINAL(display), font_desc);
+		pango_font_description_free(font_desc);
+	}
 
 	vte_terminal_set_size (VTE_TERMINAL(display), term_conf.rows, term_conf.columns);
 	vte_terminal_set_scrollback_lines (VTE_TERMINAL(display), term_conf.scrollback);
@@ -1759,8 +1768,11 @@ gint remove_section(gchar *cfg_file, gchar *section)
 	}
 
 	fwrite(buffer, 1, sect, f);
-	buf = buffer + i;
-	fwrite(buf, 1, size - i, f);
+	if(i < size)
+	{
+		buf = buffer + i;
+		fwrite(buf, 1, size - i, f);
+	}
 	fclose(f);
 
 	g_free(to_search);
@@ -1843,16 +1855,16 @@ void config_fg_color(GtkWidget *button, gpointer data)
 	vte_terminal_set_color_foreground (VTE_TERMINAL(display), &term_conf.foreground_color);
 	gtk_widget_queue_draw (display);
 
-	string = g_strdup_printf ("%d", (gint)term_conf.foreground_color.red);
+	string = g_strdup_printf ("%f", term_conf.foreground_color.red);
 	cfgStoreValue (cfg, "term_foreground_red", string, CFG_INI, 0);
 	g_free (string);
-	string = g_strdup_printf ("%d", (gint)term_conf.foreground_color.green);
+	string = g_strdup_printf ("%f", term_conf.foreground_color.green);
 	cfgStoreValue (cfg, "term_foreground_green", string, CFG_INI, 0);
 	g_free (string);
-	string = g_strdup_printf ("%d", (gint)term_conf.foreground_color.blue);
+	string = g_strdup_printf ("%f", term_conf.foreground_color.blue);
 	cfgStoreValue (cfg, "term_foreground_blue", string, CFG_INI, 0);
 	g_free (string);
-	string = g_strdup_printf ("%d", (gint)term_conf.foreground_color.alpha);
+	string = g_strdup_printf ("%f", term_conf.foreground_color.alpha);
 	cfgStoreValue (cfg, "term_foreground_alpha", string, CFG_INI, 0);
 	g_free (string);
 }
@@ -1866,16 +1878,16 @@ void config_bg_color(GtkWidget *button, gpointer data)
 	vte_terminal_set_color_background (VTE_TERMINAL(display), &term_conf.background_color);
 	gtk_widget_queue_draw (display);
 
-	string = g_strdup_printf ("%d", (gint)term_conf.background_color.red);
+	string = g_strdup_printf ("%f", term_conf.background_color.red);
 	cfgStoreValue (cfg, "term_background_red", string, CFG_INI, 0);
 	g_free (string);
-	string = g_strdup_printf ("%d", (gint)term_conf.background_color.green);
+	string = g_strdup_printf ("%f", term_conf.background_color.green);
 	cfgStoreValue (cfg, "term_background_green", string, CFG_INI, 0);
 	g_free (string);
-	string = g_strdup_printf ("%d", (gint)term_conf.background_color.blue);
+	string = g_strdup_printf ("%f", term_conf.background_color.blue);
 	cfgStoreValue (cfg, "term_background_blue", string, CFG_INI, 0);
 	g_free (string);
-	string = g_strdup_printf ("%d", (gint)term_conf.background_color.alpha);
+	string = g_strdup_printf ("%f", term_conf.background_color.alpha);
 	cfgStoreValue (cfg, "term_background_alpha", string, CFG_INI, 0);
 	g_free (string);
 }

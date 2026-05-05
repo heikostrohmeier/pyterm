@@ -325,7 +325,7 @@ void save_raw_file(GtkAction *action, gpointer data)
 		gchar *msg;
 
 		fileName = gtk_file_chooser_get_filename(GTK_FILE_CHOOSER(file_select));
-		if ((!fileName || (strcmp(fileName, ""))) == 0)
+		if (!fileName || strcmp(fileName, "") == 0)
 		{
 			msg = g_strdup_printf(_("File error\n"));
 			show_message(msg, MSG_ERR);
@@ -376,7 +376,7 @@ void save_ascii_file(GtkAction *action, gpointer data)
 		gchar *msg;
 
 		fileName = gtk_file_chooser_get_filename(GTK_FILE_CHOOSER(file_select));
-		if ((!fileName || (strcmp(fileName, ""))) == 0)
+		if (!fileName || strcmp(fileName, "") == 0)
 		{
 			msg = g_strdup_printf(_("File error\n"));
 			show_message(msg, MSG_ERR);

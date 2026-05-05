@@ -1669,7 +1669,6 @@ void create_main_window(void)
 	gtk_window_add_accel_group(GTK_WINDOW(Fenetre), GTK_ACCEL_GROUP(shortcuts));
 
 	g_signal_connect(GTK_WIDGET(Fenetre), "destroy", (GCallback)gtk_main_quit, NULL);
-	g_signal_connect(GTK_WIDGET(Fenetre), "delete_event", (GCallback)gtk_main_quit, NULL);
 
 	Set_window_title("GTKTerm");
 
@@ -1905,7 +1904,7 @@ void help_about_callback(GtkAction *action, gpointer data)
 	GdkPixbuf *logo = NULL;
 
 	logo = gdk_pixbuf_new_from_resource ("/org/gtk/gtkterm/gtkterm_64x64.png", &error);
-	g_sprintf(comments, "%s\n\n%s", RELEASE_DATE, comments_program);;
+	g_snprintf(comments, sizeof(comments), "%s\n\n%s", RELEASE_DATE, comments_program);
 
 	gtk_show_about_dialog(GTK_WINDOW(Fenetre),
 	                      "program-name", "GTKTerm fork MGU",
@@ -2049,7 +2048,7 @@ void show_message(gchar *message, gint type_msg)
 
 gboolean Send_Hexadecimal(GtkWidget *widget, GdkEventKey *event, gpointer pointer)
 {
-	guint i;
+	guint i, j;
 	gchar *text, *message, **tokens, *buff;
 	guint scan_val;
 
@@ -2062,27 +2061,30 @@ gboolean Send_Hexadecimal(GtkWidget *widget, GdkEventKey *event, gpointer pointe
 		gtk_entry_set_text(GTK_ENTRY(widget), "");
 		g_free(message);
 		return FALSE;
-	}    
+	}
 
 	tokens = g_strsplit_set(text, " ;", -1);
 	buff = g_malloc(g_strv_length(tokens));
 
-	for(i = 0; tokens[i] != NULL; i++)
+	for(i = 0, j = 0; tokens[i] != NULL; i++)
 	{
+		if(tokens[i][0] == '\0')
+			continue;
 		if(sscanf(tokens[i], "%02X", &scan_val) != 1)
 		{
 			Put_temp_message(_("Improper formatted hex input, 0 bytes sent!"),
 			                 1500);
 			g_free(buff);
+			g_strfreev(tokens);
 			return FALSE;
 		}
-		buff[i] = scan_val;
+		buff[j++] = scan_val;
 	}
 
-	send_serial(buff, i);
+	send_serial(buff, j);
 	g_free(buff);
 
-	message = g_strdup_printf(_("%d byte(s) sent!"), i);
+	message = g_strdup_printf(_("%d byte(s) sent!"), j);
     update_hex_history(widget);
 	Put_temp_message(message, 2000);
 	gtk_entry_set_text(GTK_ENTRY(widget), "");
@@ -2188,6 +2190,7 @@ void update_hex_history(GtkWidget *widget) {
 
         if (g_strcmp0(current_text, text) == 0) {
             // If the entered text matches the current_hex, move it to the end
+            g_free((gchar *)current_hex->data);
             hex_history = g_list_remove(hex_history, current_hex->data);
             hex_history = g_list_append(hex_history, g_strdup(current_text));
         } else {

@@ -151,7 +151,9 @@ void i18n_perror(const char *s)
 	conv_string = iconv_from_utf8_to_locale(s, "");
 	if(conv_string != NULL)
 	{
-		fprintf(stderr, "%s: %s\n", conv_string, strerror_utf8(errno_backup));
+		char *err_str = strerror_utf8(errno_backup);
+		fprintf(stderr, "%s: %s\n", conv_string, err_str);
+		g_free(err_str);
 		free(conv_string);
 	}
 }

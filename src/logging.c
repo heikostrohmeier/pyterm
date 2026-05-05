@@ -70,6 +70,7 @@ static gint OpenLogFile(gchar *filename)
 		show_message(str, MSG_ERR);
 		g_free(str);
 		g_free(LoggingFileName);
+		LoggingFileName = NULL;
 	}
 	else
 	{
@@ -124,6 +125,8 @@ void logging_clear(void)
 		show_message(str, MSG_ERR);
 		g_free(str);
 		g_free(LoggingFileName);
+		LoggingFileName = NULL;
+		Logging = FALSE;
 	}
 }
 
@@ -178,6 +181,7 @@ void log_chars(const gchar *chars, guint size)
 		{
 			bytesWritten += fwrite(&chars[bytesWritten], 1,
 			                       size-bytesWritten, LoggingFile);
+			writeAttempts++;
 		}
 		else
 		{
