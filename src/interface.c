@@ -864,7 +864,7 @@ void rebuild_macro_buttons(void)
 
 		GtkWidget *scrolled = gtk_scrolled_window_new(NULL, NULL);
 		gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scrolled),
-		                               GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
+		                               GTK_POLICY_AUTOMATIC, GTK_POLICY_AUTOMATIC);
 		GtkWidget *vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 3);
 		gtk_container_set_border_width(GTK_CONTAINER(vbox), 5);
 		gtk_container_add(GTK_CONTAINER(scrolled), vbox);
@@ -911,6 +911,7 @@ void rebuild_macro_buttons(void)
 						                             macro_list_entry_display(list_idx, ei));
 					GtkWidget *button = gtk_button_new_with_label(label);
 					g_free(label);
+					gtk_style_context_add_class(gtk_widget_get_style_context(button), "macro-button");
 					g_object_set_data(G_OBJECT(button), "macro-index", GINT_TO_POINTER(i));
 
 					/* Store button reference for polling */
@@ -933,6 +934,7 @@ void rebuild_macro_buttons(void)
 
 			GtkWidget *hbox   = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 2);
 			GtkWidget *button = gtk_button_new_with_label(macros[i].label);
+			gtk_style_context_add_class(gtk_widget_get_style_context(button), "macro-button");
 
 			/* Store button reference for polling */
 			g_hash_table_insert(macro_button_table, GINT_TO_POINTER(i), button);
@@ -1006,7 +1008,7 @@ void rebuild_macro_buttons(void)
 							}
 						}
 						gtk_combo_box_set_active(GTK_COMBO_BOX(widget), active_idx);
-						//gtk_widget_set_size_request(widget, 70, -1);
+						gtk_widget_set_size_request(widget, 50, -1);
 					}
 					else
 					{
@@ -1017,7 +1019,7 @@ void rebuild_macro_buttons(void)
 						    (arg_infos[k].type == 's')                         ? "text" :
 						    (strchr("feEgGaA", arg_infos[k].type) != NULL)     ? "0.0"  : "0";
 						gtk_entry_set_placeholder_text(GTK_ENTRY(widget), placeholder);
-						//gtk_entry_set_width_chars(GTK_ENTRY(widget), 6);
+						gtk_entry_set_width_chars(GTK_ENTRY(widget), 4);
 
 						if (macros[i].args != NULL && k < (gint)g_strv_length(macros[i].args))
 							gtk_entry_set_text(GTK_ENTRY(widget), macros[i].args[k]);
@@ -1059,6 +1061,7 @@ void rebuild_macro_buttons(void)
 			else
 			{
 				GtkWidget *button = gtk_button_new_with_label(macros[i].label);
+				gtk_style_context_add_class(gtk_widget_get_style_context(button), "macro-button");
 
 				/* Store button reference for polling */
 				g_hash_table_insert(macro_button_table, GINT_TO_POINTER(i), button);
@@ -1273,7 +1276,8 @@ static void create_macro_panel(void)
 	    "  color: #000000; border-color: #888888;"
 	    "  margin-top: -1px; padding-top: 4px; }\n"
 	    "button.macro-tab:hover:not(:checked) { background-color: #cccccc;"
-	    "  color: #000000; }\n",
+	    "  color: #000000; }\n"
+	    "button.macro-button { min-width: 0; }\n",
 	    -1, NULL);
 	gtk_style_context_add_provider_for_screen(gdk_screen_get_default(),
 	                                          GTK_STYLE_PROVIDER(polling_css_provider),
