@@ -912,11 +912,15 @@ add_columns (GtkTreeView *treeview)
   g_object_set (G_OBJECT (renderer), "editable", TRUE, NULL);
   column = gtk_tree_view_column_new_with_attributes (_ ("Label"), renderer, "text", COLUMN_LABEL, NULL);
   gtk_tree_view_column_set_sort_column_id (column, COLUMN_LABEL);
+  gtk_tree_view_column_set_resizable (column, TRUE);
+  gtk_tree_view_column_set_min_width (column, 80);
   gtk_tree_view_append_column (treeview, column);
 
   renderer = gtk_cell_renderer_text_new ();
   column = gtk_tree_view_column_new_with_attributes (_ ("Shortcut"), renderer, "text", COLUMN_SHORTCUT, NULL);
   gtk_tree_view_column_set_sort_column_id (column, COLUMN_SHORTCUT);
+  gtk_tree_view_column_set_resizable (column, TRUE);
+  gtk_tree_view_column_set_min_width (column, 80);
   gtk_tree_view_append_column (treeview, column);
 
   renderer = gtk_cell_renderer_text_new ();
@@ -924,6 +928,8 @@ add_columns (GtkTreeView *treeview)
   column = gtk_tree_view_column_new_with_attributes (_ ("Action"), renderer, "text", COLUMN_ACTION, NULL);
   g_object_set (G_OBJECT (renderer), "editable", TRUE, NULL);
   gtk_tree_view_column_set_sort_column_id (column, COLUMN_ACTION);
+  gtk_tree_view_column_set_resizable (column, TRUE);
+  gtk_tree_view_column_set_min_width (column, 120);
   gtk_tree_view_append_column (treeview, column);
 
   renderer = gtk_cell_renderer_text_new ();
@@ -931,6 +937,8 @@ add_columns (GtkTreeView *treeview)
   g_object_set (G_OBJECT (renderer), "editable", TRUE, NULL);
   column = gtk_tree_view_column_new_with_attributes (_ ("Tab"), renderer, "text", COLUMN_TAB, NULL);
   gtk_tree_view_column_set_sort_column_id (column, COLUMN_TAB);
+  gtk_tree_view_column_set_resizable (column, TRUE);
+  gtk_tree_view_column_set_min_width (column, 60);
   gtk_tree_view_append_column (treeview, column);
 }
 
@@ -1360,18 +1368,24 @@ add_list_columns (GtkTreeView *treeview)
   g_signal_connect (renderer, "edited", G_CALLBACK (list_name_edited), model);
   g_object_set (G_OBJECT (renderer), "editable", TRUE, NULL);
   column = gtk_tree_view_column_new_with_attributes (_ ("List"), renderer, "text", LIST_COLUMN_NAME, NULL);
+  gtk_tree_view_column_set_resizable (column, TRUE);
+  gtk_tree_view_column_set_min_width (column, 80);
   gtk_tree_view_append_column (treeview, column);
 
   renderer = gtk_cell_renderer_text_new ();
   g_signal_connect (renderer, "edited", G_CALLBACK (list_display_edited), model);
   g_object_set (G_OBJECT (renderer), "editable", TRUE, NULL);
   column = gtk_tree_view_column_new_with_attributes (_ ("Display"), renderer, "text", LIST_COLUMN_DISPLAY, NULL);
+  gtk_tree_view_column_set_resizable (column, TRUE);
+  gtk_tree_view_column_set_min_width (column, 80);
   gtk_tree_view_append_column (treeview, column);
 
   renderer = gtk_cell_renderer_text_new ();
   g_signal_connect (renderer, "edited", G_CALLBACK (list_value_edited), model);
   g_object_set (G_OBJECT (renderer), "editable", TRUE, NULL);
   column = gtk_tree_view_column_new_with_attributes (_ ("Value"), renderer, "text", LIST_COLUMN_VALUE, NULL);
+  gtk_tree_view_column_set_resizable (column, TRUE);
+  gtk_tree_view_column_set_min_width (column, 120);
   gtk_tree_view_append_column (treeview, column);
 }
 
@@ -1887,4 +1901,3 @@ macros_file_load (const gchar *path)
 
   g_key_file_free (kf);
 }
-

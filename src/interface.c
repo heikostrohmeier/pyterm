@@ -363,17 +363,19 @@ void toggle_logging_sensitivity(gboolean currentlyLogging)
 
 gboolean terminal_button_press_callback(GtkWidget *widget,
                                         GdkEventButton *event,
-                                        gpointer *data)
+                                        gpointer data)
 {
-
-	if(event->type == GDK_BUTTON_PRESS &&
-	        event->button == 3 &&
-	        (event->state & gtk_accelerator_get_default_mod_mask()) == 0)
-		{
-			gtk_menu_popup_at_pointer(GTK_MENU(popup_menu), (const GdkEvent *)event);
+	if (event->type == GDK_BUTTON_PRESS &&
+	    event->button == 3 &&
+	    (event->state & gtk_accelerator_get_default_mod_mask()) == 0)
+	{
+		/* Update copy sensitivity based on current selection */
+		update_copy_sensivity(VTE_TERMINAL(widget), NULL);
+		gtk_menu_popup_at_pointer(GTK_MENU(popup_menu), (const GdkEvent *)event);
+		/* Stop further handlers from processing this event */
+		g_signal_stop_emission_by_name(G_OBJECT(widget), "button-press-event");
 		return TRUE;
 	}
-
 	return FALSE;
 }
 
@@ -1304,9 +1306,19 @@ static void check_activate_toggle(GtkWidget *item, GSimpleAction *action)
 	g_action_change_state(G_ACTION(action), g_variant_new_boolean(current));
 }
 
+static void action_state_sync_to_item(GSimpleAction *action, GParamSpec *pspec,
+                                      GtkCheckMenuItem *item)
+{
+	GVariant *state = g_action_get_state(G_ACTION(action));
+	gtk_check_menu_item_set_active(item, g_variant_get_boolean(state));
+	g_variant_unref(state);
+}
+
 static void connect_check_to_toggle_action(GtkCheckMenuItem *item, GSimpleAction *action)
 {
 	g_signal_connect(item, "activate", G_CALLBACK(check_activate_toggle), action);
+	g_signal_connect(action, "notify::state",
+	                 G_CALLBACK(action_state_sync_to_item), item);
 }
 
 /* Helper: build a menu from a submenu and return it */
@@ -1641,6 +1653,7 @@ static void create_actions_and_menu(void)
 	/* Build popup menu */
 	popup_menu = gtk_menu_new();
 	populate_popup_menu(popup_menu);
+	gtk_widget_show_all(popup_menu);
 }
 
 void create_main_window(void)
