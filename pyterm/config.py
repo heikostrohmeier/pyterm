@@ -15,6 +15,7 @@ Ported from
 from __future__ import annotations
 
 import configparser
+import logging
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -26,6 +27,8 @@ from pyterm.utils import (
     DEFAULT_PORT, DEFAULT_ROWS, DEFAULT_SCROLLBACK, DEFAULT_STOPBITS,
     TransportType,
 )
+
+log = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Configuration filename  (src/term_config.c  CONFIGURATION_FILENAME)
@@ -212,8 +215,27 @@ def load_config(section: str = "default", path: Optional[Path] = None) -> AppCon
                    - Handle the legacy ``show_rxtx`` key by ignoring it
                      (backward compat – see the C comment in cfg[]).
     """
-    # TODO (Junior): implement – stub returns hard defaults
-    pass
+    cfg_path = path or get_config_path()
+    if not cfg_path.exists():
+        log.info("Config file %s not found; returning defaults.", cfg_path)
+        return AppConfig(active_section=section)
+
+    parser = configparser.ConfigParser()
+    try:
+        parser.read(str(cfg_path), encoding="utf-8")
+    except configparser.Error as exc:
+        log.warning("Failed to parse config file %s: %s", cfg_path, exc)
+        raise
+
+    if not parser.has_section(section):
+        log.info(
+            "Section [%s] not found in %s; returning defaults.", section, cfg_path
+        )
+        return AppConfig(active_section=section)
+
+    # TODO (Junior): map each INI key to the corresponding dataclass field.
+    log.info("Loaded config section [%s] from %s (key mapping not yet implemented).", section, cfg_path)
+    return AppConfig(active_section=section)
 
 
 # ---------------------------------------------------------------------------
@@ -234,8 +256,33 @@ def save_config(cfg: AppConfig, section: str = "default",
                    - Reference: src/term_config.c Copy_configuration(),
                      cfgDump(), save_config_silent().
     """
-    # TODO (Junior): implement
-    pass
+    cfg_path = path or get_config_path()
+    cfg_path.parent.mkdir(parents=True, exist_ok=True)
+
+    parser = configparser.ConfigParser()
+    # Preserve any existing sections in the file.
+    if cfg_path.exists():
+        try:
+            parser.read(str(cfg_path), encoding="utf-8")
+        except configparser.Error as exc:
+            log.warning(
+                "Existing config at %s is malformed (%s); it will be overwritten.",
+                cfg_path,
+                exc,
+            )
+
+    if not parser.has_section(section):
+        parser.add_section(section)
+
+    # TODO (Junior): map dataclass fields to INI keys (mirrors C cfg[] array).
+    log.info("save_config: key mapping not yet implemented; wrote empty section [%s].", section)
+
+    try:
+        with open(cfg_path, "w", encoding="utf-8") as fh:
+            parser.write(fh)
+    except OSError as exc:
+        log.error("Could not write config file %s: %s", cfg_path, exc)
+        raise
 
 
 # ---------------------------------------------------------------------------
