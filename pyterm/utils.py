@@ -142,5 +142,22 @@ FLOW_LABELS: dict[int, str] = {
 
 def is_standard_baudrate(baud: int) -> bool:
     """Return True when *baud* is in the standard list."""
-    # TODO (Junior): no logic needed here beyond the membership test.
     return baud in STANDARD_BAUDRATES
+
+
+# ---------------------------------------------------------------------------
+# Signal-line bitmask constants  (src/serial.h / transport.h)
+# ---------------------------------------------------------------------------
+
+class SignalLine:
+    """Bitmask constants for modem-control signal lines."""
+    CTS = 1 << 0
+    DSR = 1 << 1
+    DCD = 1 << 2
+    RI  = 1 << 3
+    DTR = 1 << 4
+    RTS = 1 << 5
+
+
+SIGNAL_LINE_NAMES: list[str] = ["CTS", "DSR", "DCD", "RI", "DTR", "RTS"]
+"""Ordered list of signal-line names matching the bitmask bit positions."""
