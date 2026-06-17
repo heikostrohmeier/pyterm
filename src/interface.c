@@ -1816,18 +1816,18 @@ void put_hexadecimal(const gchar *string, guint size)
 				/* First byte on line */
 				if(virt_col_pos == 0)
 				{
-					sprintf(data, "%6d: ", total_bytes);
+					snprintf(data, sizeof(data), "%6d: ", total_bytes);
 					vte_terminal_feed(VTE_TERMINAL(display), data, strlen(data));
 				}
 			}
 
-			sprintf(data_byte, "%02X ", (guchar)string[i]);
+			snprintf(data_byte, sizeof(data_byte), "%02X ", (guchar)string[i]);
 			log_chars(data_byte, 3);
 			vte_terminal_feed(VTE_TERMINAL(display), data_byte, 3);
 
 			avance = (bytes_per_line - virt_col_pos) * 3 + virt_col_pos + 2;
 			/* Move forward */
-			sprintf(data_byte, "%c[%dC", 27, avance);
+			snprintf(data_byte, sizeof(data_byte), "%c[%dC", 27, avance);
 			vte_terminal_feed(VTE_TERMINAL(display), data_byte, strlen(data_byte));
 
 			/* Print ascii characters */
@@ -1835,7 +1835,7 @@ void put_hexadecimal(const gchar *string, guint size)
 			vte_terminal_feed(VTE_TERMINAL(display), ascii, 1);
 
 			/* Move backward */
-			sprintf(data_byte, "%c[%dD", 27, avance + 1);
+			snprintf(data_byte, sizeof(data_byte), "%c[%dD", 27, avance + 1);
 			vte_terminal_feed(VTE_TERMINAL(display), data_byte, strlen(data_byte));
 
 			if(virt_col_pos == bytes_per_line / 2 - 1)
