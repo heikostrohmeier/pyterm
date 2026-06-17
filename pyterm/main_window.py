@@ -55,7 +55,10 @@ from PySide6.QtWidgets import (
 
 from pyterm.config import AppConfig, PortConfig
 from pyterm.serial_worker import SerialWorker
-from pyterm.utils import ViewMode, MsgSeverity, POLL_DELAY_MS
+from pyterm.utils import (
+    ViewMode, MsgSeverity, POLL_DELAY_MS,
+    SignalLine, SIGNAL_LINE_NAMES,
+)
 
 
 class MainWindow(QMainWindow):
@@ -160,6 +163,99 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(self._terminal_view)
 
     # ------------------------------------------------------------------
+    # Shared UI factory helpers
+    # ------------------------------------------------------------------
+
+    def _create_action(
+        self,
+        label: str,
+        object_name: str,
+        *,
+        checkable: bool = False,
+        checked: bool = False,
+        toolbar: Optional[QToolBar] = None,
+    ) -> QAction:
+        """
+        Create a QAction and optionally add it to a toolbar.
+
+        Eliminates the repetitive pattern of:
+            action = QAction(label, self)
+            action.setObjectName(name)
+            action.setCheckable(checkable)
+            action.setChecked(checked)
+            toolbar.addAction(action)
+
+        Parameters
+        ----------
+        label       : Visible text for the action.
+        object_name : Qt object name (for testing / style sheets).
+        checkable   : Whether the action is a toggle.
+        checked     : Initial checked state (only meaningful if *checkable*).
+        toolbar     : If given, the action is appended to this toolbar.
+        """
+        action = QAction(label, self)
+        action.setObjectName(object_name)
+        if checkable:
+            action.setCheckable(True)
+            action.setChecked(checked)
+        if toolbar is not None:
+            toolbar.addAction(action)
+        return action
+
+    def _update_connection_status(
+        self,
+        message: str,
+        *,
+        severity: Optional[int] = None,
+    ) -> None:
+        """
+        Centralised status-bar and window-title update.
+
+        Consolidates the duplicated setText logic found in
+        ``_on_port_opened``, ``_on_port_closed``, and ``_on_port_error``.
+
+        Parameters
+        ----------
+        message  : Human-readable status text.
+        severity : Optional MsgSeverity constant to prefix error indicators.
+        """
+        prefix = "Error: " if severity == MsgSeverity.ERROR else ""
+        self._status_label.setText(f"{prefix}{message}")
+
+    def _toggle_signal_line(self, line_bit: int) -> None:
+        """
+        Toggle a modem-control output line (DTR or RTS).
+
+        Eliminates the structural duplication between ``_on_toggle_dtr``
+        and ``_on_toggle_rts``.
+
+        Parameters
+        ----------
+        line_bit : One of ``SignalLine.DTR`` or ``SignalLine.RTS``.
+        """
+        # TODO (Junior): Track current state per line and call
+        #                self._worker.set_signal() with the correct bitmask.
+        pass
+
+    def _create_signal_led(self, name: str) -> QLabel:
+        """
+        Factory for a single signal-line LED label in the status bar.
+
+        Extracting this from the loop in ``_setup_statusbar`` makes each
+        LED individually testable and keeps the styling logic in one place.
+
+        Parameters
+        ----------
+        name : Signal name (e.g. "CTS", "DTR").
+        """
+        lbl = QLabel(name)
+        lbl.setObjectName(f"led_{name}")
+        lbl.setAlignment(Qt.AlignCenter)
+        lbl.setMinimumWidth(36)
+        # TODO (Junior): style with QSS – grey = inactive, green = active
+        return lbl
+
+    # ------------------------------------------------------------------
     # Toolbar  (src/interface.c  create_actions_and_menu())
     # ------------------------------------------------------------------
 
@@ -167,74 +263,45 @@ class MainWindow(QMainWindow):
         """
         Build the main toolbar.
 
-        TODO (Junior): Add the following actions (use QAction with icons):
-            - Open / Close port  (signals_open_port / signals_close_port)
-            - Clear display      (clear_display)
-            - ASCII view toggle  (set_view ASCII_VIEW)
-            - Hex view toggle    (set_view HEXADECIMAL_VIEW)
-            - Local echo toggle  (echo_toggled_callback)
-            - CR+LF auto toggle  (CR_LF_auto_toggled_callback)
-            - Send break         (signals_send_break_callback)
-            - Toggle DTR         (signals_toggle_DTR_callback)
-            - Toggle RTS         (signals_toggle_RTS_callback)
+        Uses :meth:`_create_action` to eliminate per-action boilerplate.
+
+        TODO (Junior): Connect each action's ``triggered`` signal to its
+                       corresponding slot once the slots are implemented.
         Reference: src/interface.c  create_actions_and_menu()
         """
         self._toolbar = QToolBar("Main Toolbar", self)
         self._toolbar.setObjectName("mainToolbar")
         self.addToolBar(self._toolbar)
 
-        # --- Placeholder actions (Junior: replace with real implementations) ---
+        tb = self._toolbar
 
-        # TODO (Junior): implement action: Open Port
-        self._action_open_port = QAction("Open Port", self)
-        self._action_open_port.setObjectName("actionOpenPort")
-        # self._action_open_port.triggered.connect(self._on_open_port)
-        self._toolbar.addAction(self._action_open_port)
+        self._action_open_port = self._create_action(
+            "Open Port", "actionOpenPort", toolbar=tb)
+        self._action_close_port = self._create_action(
+            "Close Port", "actionClosePort", toolbar=tb)
 
-        # TODO (Junior): implement action: Close Port
-        self._action_close_port = QAction("Close Port", self)
-        self._action_close_port.setObjectName("actionClosePort")
-        # self._action_close_port.triggered.connect(self._on_close_port)
-        self._toolbar.addAction(self._action_close_port)
+        tb.addSeparator()
 
-        self._toolbar.addSeparator()
+        self._action_clear = self._create_action(
+            "Clear", "actionClear", toolbar=tb)
 
-        # TODO (Junior): implement action: Clear Display
-        self._action_clear = QAction("Clear", self)
-        self._action_clear.setObjectName("actionClear")
-        # self._action_clear.triggered.connect(self._on_clear_display)
-        self._toolbar.addAction(self._action_clear)
+        tb.addSeparator()
 
-        self._toolbar.addSeparator()
+        self._action_ascii_view = self._create_action(
+            "ASCII", "actionAsciiView",
+            checkable=True, checked=True, toolbar=tb)
+        self._action_hex_view = self._create_action(
+            "Hex", "actionHexView",
+            checkable=True, checked=False, toolbar=tb)
 
-        # TODO (Junior): implement checkable action: ASCII View
-        self._action_ascii_view = QAction("ASCII", self)
-        self._action_ascii_view.setObjectName("actionAsciiView")
-        self._action_ascii_view.setCheckable(True)
-        self._action_ascii_view.setChecked(True)
-        self._toolbar.addAction(self._action_ascii_view)
+        tb.addSeparator()
 
-        # TODO (Junior): implement checkable action: Hex View
-        self._action_hex_view = QAction("Hex", self)
-        self._action_hex_view.setObjectName("actionHexView")
-        self._action_hex_view.setCheckable(True)
-        self._toolbar.addAction(self._action_hex_view)
-
-        self._toolbar.addSeparator()
-
-        # TODO (Junior): implement checkable action: Local Echo
-        self._action_echo = QAction("Echo", self)
-        self._action_echo.setObjectName("actionEcho")
-        self._action_echo.setCheckable(True)
-        self._action_echo.setChecked(self._echo_on)
-        self._toolbar.addAction(self._action_echo)
-
-        # TODO (Junior): implement checkable action: CR+LF Auto
-        self._action_crlfauto = QAction("CR+LF", self)
-        self._action_crlfauto.setObjectName("actionCrlfAuto")
-        self._action_crlfauto.setCheckable(True)
-        self._action_crlfauto.setChecked(self._crlfauto)
-        self._toolbar.addAction(self._action_crlfauto)
+        self._action_echo = self._create_action(
+            "Echo", "actionEcho",
+            checkable=True, checked=self._echo_on, toolbar=tb)
+        self._action_crlfauto = self._create_action(
+            "CR+LF", "actionCrlfAuto",
+            checkable=True, checked=self._crlfauto, toolbar=tb)
 
     # ------------------------------------------------------------------
     # Menu bar  (src/interface.c  create_actions_and_menu())
@@ -309,8 +376,10 @@ class MainWindow(QMainWindow):
 
         Contains:
         - A text label for port status / messages (Set_status_message).
-        - Six LED-style QLabel widgets for modem-control signal lines:
-          CTS, DSR, DCD, RI, DTR, RTS.
+        - Six LED-style QLabel widgets for modem-control signal lines.
+
+        Uses :meth:`_create_signal_led` for each LED widget and
+        :data:`SIGNAL_LINE_NAMES` from utils to avoid hard-coded name lists.
 
         Mirrors the GTK status-bar + signal widgets in src/interface.c.
 
@@ -328,12 +397,8 @@ class MainWindow(QMainWindow):
 
         # Modem-control signal LEDs  (mirrors signals[6] in interface.c)
         self._signal_labels: dict[str, QLabel] = {}
-        for name in ("CTS", "DSR", "DCD", "RI", "DTR", "RTS"):
-            lbl = QLabel(name)
-            lbl.setObjectName(f"led_{name}")
-            lbl.setAlignment(Qt.AlignCenter)
-            lbl.setMinimumWidth(36)
-            # TODO (Junior): style with QSS – grey = inactive, green = active
+        for name in SIGNAL_LINE_NAMES:
+            lbl = self._create_signal_led(name)
             self._signal_labels[name] = lbl
             self._statusbar.addPermanentWidget(lbl)
 
@@ -449,15 +514,12 @@ class MainWindow(QMainWindow):
         Mirrors Set_status_message() + Set_window_title() in interface.c.
 
         TODO (Junior): implement
-                       1. Set self._status_label.setText(status).
-                       2. Set window title.
-                       3. Enable port-dependent menu/toolbar actions.
-                       4. Start self._signal_poll_timer.
+                       1. Enable port-dependent menu/toolbar actions.
+                       2. Start self._signal_poll_timer.
                        Reference: src/interface.c  interface_open_port(),
                                   Set_status_message(), Set_window_title().
         """
-        # TODO (Junior): implement
-        self._status_label.setText(status)
+        self._update_connection_status(status)
 
     @Slot()
     def _on_port_closed(self) -> None:
@@ -466,13 +528,11 @@ class MainWindow(QMainWindow):
 
         TODO (Junior): implement
                        1. Stop self._signal_poll_timer.
-                       2. Update status label.
-                       3. Grey out port-dependent actions.
-                       4. Reset LED indicators to inactive.
+                       2. Grey out port-dependent actions.
+                       3. Reset LED indicators to inactive.
                        Reference: src/interface.c  interface_close_port().
         """
-        # TODO (Junior): implement
-        self._status_label.setText("Port closed")
+        self._update_connection_status("Port closed")
 
     @Slot(str)
     def _on_port_error(self, message: str) -> None:
@@ -484,8 +544,7 @@ class MainWindow(QMainWindow):
         TODO (Junior): Optionally show a QMessageBox for critical errors.
                        Reference: src/interface.c  show_message().
         """
-        # TODO (Junior): implement
-        self._status_label.setText(f"Error: {message}")
+        self._update_connection_status(message, severity=MsgSeverity.ERROR)
 
     @Slot(int)
     def _on_control_signals_changed(self, mask: int) -> None:
@@ -601,23 +660,18 @@ class MainWindow(QMainWindow):
         """
         Toggle the DTR modem-control line.
 
-        TODO (Junior): Track current DTR state and call
-                       self._worker.set_signal() with the correct bitmask.
-                       Reference: src/interface.c  signals_toggle_DTR_callback().
+        Reference: src/interface.c  signals_toggle_DTR_callback().
         """
-        # TODO (Junior): implement
-        pass
+        self._toggle_signal_line(SignalLine.DTR)
 
     @Slot()
     def _on_toggle_rts(self) -> None:
         """
         Toggle the RTS modem-control line.
 
-        TODO (Junior): Mirror _on_toggle_dtr for RTS.
-                       Reference: src/interface.c  signals_toggle_RTS_callback().
+        Reference: src/interface.c  signals_toggle_RTS_callback().
         """
-        # TODO (Junior): implement
-        pass
+        self._toggle_signal_line(SignalLine.RTS)
 
     @Slot()
     def _on_about(self) -> None:
