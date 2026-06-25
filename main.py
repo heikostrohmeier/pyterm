@@ -16,6 +16,8 @@ Ported from
 
 from __future__ import annotations
 
+import configparser
+import logging
 import sys
 
 from PySide6.QtCore import Qt
@@ -23,6 +25,8 @@ from PySide6.QtWidgets import QApplication
 
 from pyterm.config import load_config, hard_default_config
 from pyterm.main_window import MainWindow
+
+log = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -85,6 +89,11 @@ def main() -> int:
 
     Returns the exit code from QApplication.exec().
     """
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    )
+
     app = QApplication(sys.argv)
     app.setApplicationName("pyterm")
     app.setApplicationVersion("0.1.0")
@@ -99,13 +108,8 @@ def main() -> int:
 
     try:
         cfg = load_config()
-        if cfg is None:
-            # load_config() returns None when not yet implemented (stub)
-            cfg = hard_default_config()
-    except Exception as exc:
-        # Graceful fallback to hard defaults on any config-load error.
-        # This mirrors Hard_default_configuration() in term_config.c.
-        print(f"[pyterm] Warning: could not load config ({exc}); using defaults.")
+    except (OSError, configparser.Error, ValueError, KeyError) as exc:
+        log.warning("Could not load config (%s); using defaults.", exc)
         cfg = hard_default_config()
 
     cfg = apply_cli_overrides(cfg, overrides)
