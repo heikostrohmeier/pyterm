@@ -21,6 +21,8 @@
 #include <stdlib.h>
 #include <getopt.h>
 #include <string.h>
+#include <errno.h>
+#include <limits.h>
 
 #include "term_config.h"
 #include "files.h"
@@ -31,6 +33,17 @@
 #include <glib/gi18n.h>
 
 extern struct configuration_port config;
+
+static gint safe_atoi(const char *str, gint fallback)
+{
+	char *endptr;
+	errno = 0;
+	long val = strtol(str, &endptr, 10);
+	if (endptr == str || *endptr != '\0' || errno == ERANGE ||
+	    val < INT_MIN || val > INT_MAX)
+		return fallback;
+	return (gint)val;
+}
 
 void display_help(void)
 {
@@ -106,7 +119,7 @@ int read_command_line(int argc, char **argv)
 			break;
 
 		case 's':
-			config.vitesse = atoi(optarg);
+			config.vitesse = safe_atoi(optarg, config.vitesse);
 			break;
 
 		case 'a':
@@ -117,11 +130,11 @@ int read_command_line(int argc, char **argv)
 			break;
 
 		case 't':
-			config.stops = atoi(optarg);
+			config.stops = safe_atoi(optarg, config.stops);
 			break;
 
 		case 'b':
-			config.bits = atoi(optarg);
+			config.bits = safe_atoi(optarg, config.bits);
 			break;
 
 		case 'f':
@@ -142,7 +155,7 @@ int read_command_line(int argc, char **argv)
 			break;
 
 		case 'd':
-			config.delai = atoi(optarg);
+			config.delai = safe_atoi(optarg, config.delai);
 			break;
 
 		case 'r':
@@ -158,11 +171,11 @@ int read_command_line(int argc, char **argv)
 			break;
 
 		case 'x':
-			config.rs485_rts_time_before_transmit = atoi(optarg);
+			config.rs485_rts_time_before_transmit = safe_atoi(optarg, config.rs485_rts_time_before_transmit);
 			break;
 
 		case 'y':
-			config.rs485_rts_time_after_transmit = atoi(optarg);
+			config.rs485_rts_time_after_transmit = safe_atoi(optarg, config.rs485_rts_time_after_transmit);
 			break;
 
 		case 'T':

@@ -28,6 +28,7 @@ Ported from
 
 from __future__ import annotations
 
+import logging
 from typing import Optional
 
 from PySide6.QtCore import (
@@ -41,6 +42,8 @@ from PySide6.QtCore import (
 
 from pyterm.config import PortConfig
 from pyterm.utils import BUFFER_RECEPTION, POLL_DELAY_MS, TransportType
+
+log = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -153,8 +156,10 @@ class SerialWorker(QThread):
                        Reference files: src/transport.c, src/serial.c,
                                         src/device_monitor.c
         """
-        # TODO (Junior): implement
-        pass
+        if self._port is None:
+            log.error("run() called but no port is open; exiting I/O loop.")
+            return
+        log.warning("I/O loop not yet implemented; thread will exit immediately.")
 
     # ------------------------------------------------------------------
     # Slots
@@ -194,8 +199,14 @@ class SerialWorker(QThread):
         TODO (Junior): implement
         """
         self._config = config
-        # TODO (Junior): implement opening logic
-        pass
+        # TODO (Junior): implement opening logic.
+        log.warning(
+            "open_port() not yet implemented; port %s will not be opened.",
+            config.port,
+        )
+        self.port_error.emit(
+            f"Cannot open {config.port}: open_port() not yet implemented."
+        )
 
     @Slot()
     def close_port(self) -> None:
@@ -211,8 +222,20 @@ class SerialWorker(QThread):
                        4. Emit self.port_closed().
                        Reference: src/serial.c  Close_port()
         """
-        # TODO (Junior): implement
-        pass
+        with QMutexLocker(self._mutex):
+            self._stop_request = True
+        self._write_cond.wakeAll()
+
+        if self._port is not None:
+            try:
+                self._port.close()
+            except Exception as exc:
+                log.error("Error closing port: %s", exc)
+            finally:
+                self._port = None
+
+        self.port_closed.emit()
+        log.info("Port closed.")
 
     @Slot(bytes)
     def send_bytes(self, data: bytes) -> None:
@@ -232,8 +255,14 @@ class SerialWorker(QThread):
                        Reference: src/serial.c  Send_chars(),
                                   src/transport.c  transport_send()
         """
-        # TODO (Junior): implement
-        pass
+        if self._port is None:
+            log.warning("send_bytes() called but no port is open; %d bytes dropped.", len(data))
+            self.port_error.emit("Cannot send: port is not open.")
+            return
+
+        with QMutexLocker(self._mutex):
+            self._write_queue.extend(data)
+        self._write_cond.wakeAll()
 
     @Slot()
     def send_break(self) -> None:
@@ -245,8 +274,16 @@ class SerialWorker(QThread):
         TODO (Junior): Call self._port.send_break() inside try/except.
                        Reference: src/serial.c  sendbreak()
         """
-        # TODO (Junior): implement
-        pass
+        if self._port is None:
+            log.warning("send_break() called but no port is open.")
+            self.port_error.emit("Cannot send break: port is not open.")
+            return
+
+        try:
+            self._port.send_break()
+        except Exception as exc:
+            log.error("Failed to send break: %s", exc)
+            self.port_error.emit(f"Send break failed: {exc}")
 
     @Slot(int)
     def set_signal(self, signal_mask: int) -> None:
@@ -261,8 +298,13 @@ class SerialWorker(QThread):
                        Reference: src/serial.c  Set_signals(),
                                   src/transport.c  transport_set_signal()
         """
-        # TODO (Junior): implement
-        pass
+        if self._port is None:
+            log.warning("set_signal() called but no port is open.")
+            self.port_error.emit("Cannot set signal: port is not open.")
+            return
+
+        # TODO (Junior): decode signal_mask and call setDTR()/setRTS().
+        log.warning("set_signal() bitmask decoding not yet implemented.")
 
     @Slot(object)
     def apply_config(self, config: PortConfig) -> None:
@@ -278,8 +320,15 @@ class SerialWorker(QThread):
                                   src/serial.c  Config_port()
         """
         self._config = config
-        # TODO (Junior): implement
-        pass
+        if self._port is None:
+            log.warning(
+                "apply_config() called but no port is open; "
+                "settings will take effect on next open_port()."
+            )
+            return
+
+        # TODO (Junior): call self._port.apply_settings() or set individual attrs.
+        log.warning("apply_config() live-update not yet implemented.")
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -312,5 +361,13 @@ class SerialWorker(QThread):
                        Reference: src/serial.c  lis_sig(),
                                   src/transport.c  transport_get_signals()
         """
-        # TODO (Junior): implement
-        return 0
+        if self._port is None:
+            return 0
+
+        try:
+            mask = 0
+            # TODO (Junior): read self._port.getCTS() etc. and pack into bitmask.
+            return mask
+        except Exception as exc:
+            log.error("Failed to read control signals: %s", exc)
+            return 0

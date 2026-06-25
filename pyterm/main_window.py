@@ -35,6 +35,7 @@ Ported from
 
 from __future__ import annotations
 
+import logging
 from typing import Optional
 
 from PySide6.QtCore import Qt, Slot, QTimer
@@ -56,6 +57,8 @@ from PySide6.QtWidgets import (
 from pyterm.config import AppConfig, PortConfig
 from pyterm.serial_worker import SerialWorker
 from pyterm.utils import ViewMode, MsgSeverity, POLL_DELAY_MS
+
+log = logging.getLogger(__name__)
 
 
 class MainWindow(QMainWindow):
@@ -484,7 +487,7 @@ class MainWindow(QMainWindow):
         TODO (Junior): Optionally show a QMessageBox for critical errors.
                        Reference: src/interface.c  show_message().
         """
-        # TODO (Junior): implement
+        log.error("Port error: %s", message)
         self._status_label.setText(f"Error: {message}")
 
     @Slot(int)
@@ -727,9 +730,21 @@ class MainWindow(QMainWindow):
                        2. Call pyterm.config.save_config(self._config).
                        3. Accept the event.
         """
-        # TODO (Junior): implement proper shutdown
+        self._worker.close_port()
         self._worker.quit()
-        self._worker.wait(3000)
+        if not self._worker.wait(3000):
+            log.warning(
+                "Worker thread did not stop within 3 s; terminating."
+            )
+            self._worker.terminate()
+            self._worker.wait(1000)
+
+        try:
+            from pyterm.config import save_config
+            save_config(self._config)
+        except Exception as exc:
+            log.error("Failed to save config on exit: %s", exc)
+
         event.accept()
 
     def keyPressEvent(self, event: QKeyEvent) -> None:

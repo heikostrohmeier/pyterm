@@ -34,6 +34,10 @@
 #include <limits.h>
 #include <errno.h>
 #include <locale.h>
+#include <fcntl.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <unistd.h>
 
 #include "parsecfg.h"
 #include "i18n.h"
@@ -165,7 +169,15 @@ int cfgDump(const char *file, cfgStruct cfg[], cfgFileType type, int max_section
 	FILE *fp;
 	int retcode;
 
-	fp = fopen(file, "w");
+	{
+		int fd = open(file, O_WRONLY | O_CREAT | O_TRUNC, S_IRUSR | S_IWUSR);
+		if (fd == -1)
+		{
+			cfgFatal(CFG_CREATE_FAIL, file, 0, NULL);
+			return (-1);
+		}
+		fp = fdopen(fd, "w");
+	}
 	if (fp == NULL)
 	{
 		cfgFatal(CFG_CREATE_FAIL, file, 0, NULL);
@@ -1136,6 +1148,7 @@ static char *dynamic_fgets(FILE *fp)
 	char temp[128];
 	int i;
 
+	size_t total_len = 0;
 	ptr = malloc(1);
 	if (ptr == NULL)
 	{
@@ -1154,16 +1167,19 @@ static char *dynamic_fgets(FILE *fp)
 			}
 			return (ptr);
 		}
-		ptr = realloc(ptr, 127 * (i + 1) + 1);
+		size_t chunk_len = strlen(temp);
+		ptr = realloc(ptr, total_len + chunk_len + 1);
 		if (ptr == NULL)
 		{
 			cfgFatalFunc(CFG_MEM_ALLOC_FAIL, "unknown", 0, "");
 			return (NULL);
 		}
-		strcat(ptr, temp);
+		memcpy(ptr + total_len, temp, chunk_len + 1);
+		total_len += chunk_len;
 		if (strchr(temp, '\n') != NULL)
 		{
-			*strchr(ptr, '\n') = '\0';
+			char *nl = strchr(ptr, '\n');
+			if (nl) *nl = '\0';
 			return (ptr);
 		}
 	}

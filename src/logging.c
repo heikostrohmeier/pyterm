@@ -24,6 +24,14 @@
 #include <string.h>
 #include <glib.h>
 
+static FILE *fopen_owner_only(const char *path, const char *mode)
+{
+	int fd = open(path, O_WRONLY | O_CREAT | O_APPEND, S_IRUSR | S_IWUSR);
+	if (fd == -1)
+		return NULL;
+	return fdopen(fd, mode);
+}
+
 #include "interface.h"
 #include "serial.h"
 #include "buffer.h"
@@ -62,7 +70,7 @@ static gint OpenLogFile(gchar *filename)
 
 	LoggingFileName = filename;
 
-	LoggingFile = fopen(LoggingFileName, "a");
+	LoggingFile = fopen_owner_only(LoggingFileName, "a");
 	if(LoggingFile == NULL)
 	{
 		str = g_strdup_printf(_("Cannot open file %s: %s\n"), LoggingFileName, strerror(errno));
