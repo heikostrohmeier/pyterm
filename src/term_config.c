@@ -42,6 +42,8 @@
 #include <fcntl.h>
 #include <dirent.h>
 #include <glob.h>
+#include <limits.h>
+#include <errno.h>
 #include <vte/vte.h>
 #include <glib/gi18n.h>
 
@@ -820,11 +822,25 @@ gint Lis_Config(GtkWidget *bouton, GtkWidget **Combos)
 		g_free(message);
 
 		message = gtk_combo_box_text_get_active_text(GTK_COMBO_BOX_TEXT(Combos[1]));
-		config.vitesse = atoi(message);
+		{
+			char *endptr;
+			errno = 0;
+			long val = strtol(message, &endptr, 10);
+			if (endptr != message && *endptr == '\0' && errno != ERANGE &&
+			    val > 0 && val <= INT_MAX)
+				config.vitesse = (gint)val;
+		}
 		g_free(message);
 
 		message = gtk_combo_box_text_get_active_text(GTK_COMBO_BOX_TEXT(Combos[3]));
-		config.bits = atoi(message);
+		{
+			char *endptr;
+			errno = 0;
+			long val = strtol(message, &endptr, 10);
+			if (endptr != message && *endptr == '\0' && errno != ERANGE &&
+			    val >= 5 && val <= 8)
+				config.bits = (gint)val;
+		}
 		g_free(message);
 
 		config.delai = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(Combos[6]));
@@ -841,7 +857,14 @@ gint Lis_Config(GtkWidget *bouton, GtkWidget **Combos)
 		g_free(message);
 
 		message = gtk_combo_box_text_get_active_text(GTK_COMBO_BOX_TEXT(Combos[4]));
-		config.stops = atoi(message);
+		{
+			char *endptr;
+			errno = 0;
+			long val = strtol(message, &endptr, 10);
+			if (endptr != message && *endptr == '\0' && errno != ERANGE &&
+			    (val == 1 || val == 2))
+				config.stops = (gint)val;
+		}
 		g_free(message);
 
 		message = gtk_combo_box_text_get_active_text(GTK_COMBO_BOX_TEXT(Combos[5]));
@@ -1572,7 +1595,7 @@ gint Check_configuration_file(void)
 
 void Hard_default_configuration(void)
 {
-	strcpy(config.port, DEFAULT_PORT);
+	g_strlcpy(config.port, DEFAULT_PORT, sizeof(config.port));
 	config.vitesse = DEFAULT_SPEED;
 	config.parite = DEFAULT_PARITY;
 	config.bits = DEFAULT_BITS;
@@ -1856,7 +1879,10 @@ gint remove_section(gchar *cfg_file, gchar *section)
 			break;
 	}
 
-	f = fopen(cfg_file, "w");
+	{
+		int fd = open(cfg_file, O_WRONLY | O_CREAT | O_TRUNC, S_IRUSR | S_IWUSR);
+		f = (fd != -1) ? fdopen(fd, "w") : NULL;
+	}
 	if(f == NULL)
 	{
 		perror(cfg_file);

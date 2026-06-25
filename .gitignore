@@ -1,2 +1,8 @@
 *~
 build
+.env
+.env.*
+*.pem
+*.key
+__pycache__/
+*.pyc

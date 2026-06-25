@@ -81,9 +81,9 @@ unsigned int insert_timestamp(char *buffer)
 		m = (ts.tv_sec / 60 ) % 60;
 		s = ts.tv_sec % 60;
 		x = ts.tv_nsec / 1000000;
-		snprintf(buf, TIMESTAMP_SIZE - 1, "[%d.%02uh.%02um.%02us.%03u] "
+		snprintf(buf, TIMESTAMP_SIZE, "[%d.%02uh.%02um.%02us.%03u] "
 				, d, h, m, s, x );
-		strcpy(buffer, buf);
+		memcpy(buffer, buf, strlen(buf) + 1);
 		size = strlen(buf);
 	}
   return size;
