@@ -1,5 +1,9 @@
 *~
 build
+__pycache__/
+*.pyc
+.coverage
+.pytest_cache/
 .env
 .env.*
 *.pem
